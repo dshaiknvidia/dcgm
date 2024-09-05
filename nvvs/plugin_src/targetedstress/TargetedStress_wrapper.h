@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@
 #include <DcgmRecorder.h>
 #include <NvvsStructs.h>
 #include <PluginInterface.h>
+#include <PluginStrings.h>
 #include <cublas_proxy.hpp>
 #include <cuda.h>
 
@@ -104,7 +105,7 @@ public:
     double usecInGemm;   /* How long (microseconds) have we spent running gemm */
 
     CPerfDevice(unsigned int ndi, const char *pciBusId, Plugin *p)
-        : PluginDevice(ndi, pciBusId, p)
+        : PluginDevice(TS_PLUGIN_NAME, ndi, pciBusId, p)
         , Nstreams(0)
         , allocatedCublasHandle(0)
         , cublasHandle(0)
@@ -188,7 +189,9 @@ public:
     ~ConstantPerf();
 
     /*************************************************************************/
-    void Go(unsigned int numParameters, const dcgmDiagPluginTestParameter_t *testParameters);
+    void Go(std::string const &testName,
+            unsigned int numParameters,
+            const dcgmDiagPluginTestParameter_t *testParameters);
 
     /*************************************************************************/
     /*
@@ -218,7 +221,9 @@ public:
      */
     bool Init(dcgmDiagPluginGpuList_t *gpuInfo);
 
+#ifndef TARGETED_STRESS_TESTS
 private:
+#endif
     /*************************************************************************/
     /*
      * Initialize the parts of cuda and cublas needed for this plugin to run

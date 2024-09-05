@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,12 +25,60 @@
 #include <errno.h>
 #include <fmt/format.h>
 #include <iostream>
+#include <span>
 #include <stdexcept>
 #include <string.h>
 #include <unistd.h>
 
 #ifdef __x86_64__
 __asm__(".symver memcpy,memcpy@GLIBC_2.2.5");
+#endif
+
+#define DCGM_STRINGIFY_IMPL(x) #x
+#define DCGM_STRINGIFY(x)      DCGM_STRINGIFY_IMPL(x)
+
+#ifndef DCGM_NVML_SONAME
+#ifndef DCGM_NVML_SOVERSION
+#define DCGM_NVML_SOVERSION 1
+#endif
+#define DCGM_NVML_SONAME "libnvidia-ml.so." DCGM_STRINGIFY(DCGM_NVML_SOVERSION)
+#else
+#ifdef DCGM_NVML_SOVERSION
+#pragma message DCGM_NVML_SONAME set explicitly; DCGM_NVML_SOVERSION ignored !
+#endif
+#endif
+
+#ifndef DCGM_CUDA_SONAME
+#ifndef DCGM_CUDA_SOVERSION
+#define DCGM_CUDA_SOVERSION 1
+#endif
+#define DCGM_CUDA_SONAME "libcuda.so." DCGM_STRINGIFY(DCGM_CUDA_SOVERSION)
+#else
+#ifdef DCGM_CUDA_SOVERSION
+#pragma message DCGM_CUDA_SONAME set explicitly; DCGM_CUDA_SOVERSION ignored !
+#endif
+#endif
+
+#ifndef DCGM_CUDART_SONAME
+#ifndef DCGM_CUDART_SOVERSION
+#define DCGM_CUDART_SOVERSION 1
+#endif
+#define DCGM_CUDART_SONAME "libcudart.so." DCGM_STRINGIFY(DCGM_CUDART_SOVERSION)
+#else
+#ifdef DCGM_CUDART_SOVERSION
+#pragma message DCGM_CUDART_SONAME set explicitly; DCGM_CUDART_SOVERSION ignored !
+#endif
+#endif
+
+#ifndef DCGM_CUBLAS_SONAME
+#ifndef DCGM_CUBLAS_SOVERSION
+#define DCGM_CUBLAS_SOVERSION 1
+#endif
+#define DCGM_CUBLAS_SONAME "libcublas.so." DCGM_STRINGIFY(DCGM_CUBLAS_SOVERSION)
+#else
+#ifdef DCGM_CUBLAS_SOVERSION
+#pragma message DCGM_CUBLAS_SONAME set explicitly; DCGM_CUBLAS_SOVERSION ignored !
+#endif
 #endif
 
 Software::Software(dcgmHandle_t handle, dcgmDiagPluginGpuList_t *gpuInfo)
@@ -56,24 +104,32 @@ Software::Software(dcgmHandle_t handle, dcgmDiagPluginGpuList_t *gpuInfo)
     {
         DcgmError d { DcgmError::GpuIdTag::Unknown };
         DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_INTERNAL, d, "No GPU information specified");
-        AddError(d);
+        AddError(SW_PLUGIN_NAME, d);
     }
     else
     {
         m_gpuInfo = *gpuInfo;
-        InitializeForGpuList(*gpuInfo);
+        InitializeForGpuList(SW_PLUGIN_NAME, *gpuInfo);
     }
 
     m_dcgmSystem.Init(handle);
 }
 
-void Software::Go(unsigned int numParameters, const dcgmDiagPluginTestParameter_t *tpStruct)
+void Software::Go(std::string const &testName,
+                  unsigned int numParameters,
+                  dcgmDiagPluginTestParameter_t const *tpStruct)
 {
     if (UsingFakeGpus())
     {
         log_error("Plugin is using fake gpus");
-        SetResult(NVVS_RESULT_PASS);
-        checkPageRetirement();
+        SetResult(testName, NVVS_RESULT_PASS);
+        TestParameters testParameters(*(m_infoStruct.defaultTestParameters));
+        testParameters.SetFromStruct(numParameters, tpStruct);
+        if (testParameters.GetString(SW_STR_DO_TEST) == "page_retirement")
+        {
+            checkPageRetirement();
+            checkRowRemapping();
+        }
         return;
     }
 
@@ -100,7 +156,7 @@ void Software::Go(unsigned int numParameters, const dcgmDiagPluginTestParameter_
         if (!shouldCheckPersistence)
         {
             log_info("Skipping persistence check");
-            SetResult(NVVS_RESULT_SKIP);
+            SetResult(testName, NVVS_RESULT_SKIP);
         }
         else
         {
@@ -120,7 +176,7 @@ void Software::Go(unsigned int numParameters, const dcgmDiagPluginTestParameter_
         checkInforom();
 }
 
-bool Software::CountDevEntry(const std::string &entryName)
+bool Software::CountDevEntry(std::string const &entryName)
 {
     if (entryName.compare(0, 6, "nvidia") == 0)
     {
@@ -158,7 +214,7 @@ bool Software::checkPermissions(bool checkFileCreation, bool skipDeviceTest)
     gpuCount = gpuIds.size();
 
     // everything below here is not necessarily a failure
-    SetResult(NVVS_RESULT_PASS);
+    SetResult(SW_PLUGIN_NAME, NVVS_RESULT_PASS);
     if (skipDeviceTest == false)
     {
         dir = opendir(dirName.c_str());
@@ -197,12 +253,12 @@ bool Software::checkPermissions(bool checkFileCreation, bool skipDeviceTest)
         {
             DcgmError d { DcgmError::GpuIdTag::Unknown };
             DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_DEVICE_COUNT_MISMATCH, d);
-            AddError(d);
+            AddError(SW_PLUGIN_NAME, d);
             for (auto &warning : accessWarnings)
             {
-                AddError(warning);
+                AddError(SW_PLUGIN_NAME, warning);
             }
-            SetResult(NVVS_RESULT_WARN);
+            SetResult(SW_PLUGIN_NAME, NVVS_RESULT_WARN);
         }
     }
 
@@ -212,13 +268,13 @@ bool Software::checkPermissions(bool checkFileCreation, bool skipDeviceTest)
         if (euidaccess(".", W_OK))
         {
             char cwd[1024];
-            const char *working_dir = getcwd(cwd, sizeof(cwd));
+            char const *working_dir = getcwd(cwd, sizeof(cwd));
 
             DcgmError d { DcgmError::GpuIdTag::Unknown };
             d.SetCode(DCGM_FR_FILE_CREATE_PERMISSIONS);
             d.SetMessage(fmt::format("No permission to create a file in directory '{}'", working_dir));
             d.SetNextSteps(DCGM_FR_FILE_CREATE_PERMISSIONS_NEXT);
-            AddError(d);
+            AddError(SW_PLUGIN_NAME, d);
             return false;
         }
     }
@@ -226,77 +282,81 @@ bool Software::checkPermissions(bool checkFileCreation, bool skipDeviceTest)
     return false;
 }
 
+// This function suggests time-of-check/time-of-use (TOCTOU) race conditions
 bool Software::checkLibraries(libraryCheck_t checkLib)
 {
-    // check whether the NVML, CUDA, and CUDA toolkit libraries can be found
-    // via default paths
-    bool fail = false;
-    std::vector<std::string> libs;
+    // Check whether the NVML, CUDA, or CUDA toolkit libraries can be found with sufficient permissions
+    using span_t   = std::span<char const *const>;
+    using result_t = nvvsPluginResult_t;
+
+    auto const check = [this](span_t const libraries, span_t const diagnostics, result_t const failureCode) {
+        bool failure = false;
+        std::string error;
+
+        for (char const *const library : libraries)
+        {
+            if (!findLib(library, error))
+            {
+                DcgmError d { DcgmError::GpuIdTag::Unknown };
+                DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_CANNOT_OPEN_LIB, d, library, error.c_str());
+                AddError(SW_PLUGIN_NAME, d);
+                SetResult(SW_PLUGIN_NAME, failureCode);
+                failure = true;
+            }
+        }
+
+        if (failure)
+        {
+            for (char const *const diagnostic : diagnostics)
+            {
+                AddInfo(SW_PLUGIN_NAME, diagnostic);
+            }
+        }
+
+        return failure;
+    };
 
     switch (checkLib)
     {
         case CHECK_NVML:
-            libs.push_back("libnvidia-ml.so.1");
-            break;
+        {
+            static constexpr char const *libraries[]   = { DCGM_NVML_SONAME };
+            static constexpr char const *diagnostics[] = {
+                "The NVML main library could not be found in the default search paths.",
+                "Please check to see if it is installed or that LD_LIBRARY_PATH contains the path to " DCGM_NVML_SONAME,
+                "Skipping remainder of tests."
+            };
+
+            return check(libraries, diagnostics, NVVS_RESULT_FAIL);
+        }
         case CHECK_CUDA:
-            libs.push_back("libcuda.so");
-            break;
+        {
+            static constexpr char const *libraries[]   = { DCGM_CUDA_SONAME };
+            static constexpr char const *diagnostics[] = { "The CUDA main library could not be found."
+                                                           "Skipping remainder of tests." };
+
+            return check(libraries, diagnostics, NVVS_RESULT_WARN);
+        }
         case CHECK_CUDATK:
-            libs.push_back("libcudart.so");
-            libs.push_back("libcublas.so");
-            break;
+        {
+            static constexpr char const *libraries[] = { DCGM_CUDART_SONAME, DCGM_CUBLAS_SONAME };
+            static constexpr char const *diagnostics[]
+                = { "The CUDA Toolkit libraries could not be found.",
+                    "Is LD_LIBRARY_PATH set to the 64-bit library path? (usually /usr/local/cuda/lib64)",
+                    "Some tests will not run." };
+
+            return check(libraries, diagnostics, NVVS_RESULT_WARN);
+        }
         default:
         {
             // should never get here
             DcgmError d { DcgmError::GpuIdTag::Unknown };
             DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_BAD_PARAMETER, d, __func__);
-            AddError(d);
-            SetResult(NVVS_RESULT_FAIL);
+            AddError(SW_PLUGIN_NAME, d);
+            SetResult(SW_PLUGIN_NAME, NVVS_RESULT_FAIL);
+            return true;
         }
     }
-
-    for (std::vector<std::string>::iterator it = libs.begin(); it != libs.end(); it++)
-    {
-        std::string error;
-        if (!findLib(*it, error))
-        {
-            DcgmError d { DcgmError::GpuIdTag::Unknown };
-            DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_CANNOT_OPEN_LIB, d, it->c_str(), error.c_str());
-            AddError(d);
-            if (checkLib != CHECK_CUDATK)
-            {
-                SetResult(NVVS_RESULT_FAIL);
-            }
-            else
-            {
-                SetResult(NVVS_RESULT_WARN);
-            }
-
-            fail = true;
-        }
-    }
-
-    // The statements that follow are all classified as info statements because only messages directly tied
-    // to failures are errors.
-    if (checkLib == CHECK_CUDATK && fail == true)
-    {
-        AddInfo("The CUDA Toolkit libraries could not be found.");
-        AddInfo("Is LD_LIBRARY_PATH set to the 64-bit library path? (usually /usr/local/cuda/lib64)");
-        AddInfo("Some tests will not run.");
-    }
-    if (checkLib == CHECK_CUDA && fail == true)
-    {
-        AddInfo("The CUDA main library could not be found.");
-        AddInfo("Skipping remainder of tests.");
-    }
-    if (checkLib == CHECK_NVML && fail == true)
-    {
-        AddInfo("The NVML main library could not be found in the default search paths.");
-        AddInfo(
-            "Please check to see if it is installed or that LD_LIBRARY_PATH contains the path to libnvidia-ml.so.1.");
-        AddInfo("Skipping remainder of tests.");
-    }
-    return fail;
 }
 
 bool Software::checkDenylist()
@@ -304,10 +364,10 @@ bool Software::checkDenylist()
     // check whether the nouveau driver is installed and if so, fail this test
     bool status = false;
 
-    const std::string searchPaths[] = { "/sys/bus/pci/devices", "/sys/bus/pci_express/devices" };
-    const std::string driverDirs[]  = { "driver", "subsystem/drivers" };
+    std::string const searchPaths[] = { "/sys/bus/pci/devices", "/sys/bus/pci_express/devices" };
+    std::string const driverDirs[]  = { "driver", "subsystem/drivers" };
 
-    const std::vector<std::string> denyList = { "nouveau" };
+    std::vector<std::string> const denyList = { "nouveau" };
 
     for (int i = 0; i < sizeof(searchPaths) / sizeof(searchPaths[0]); i++)
     {
@@ -334,7 +394,7 @@ bool Software::checkDenylist()
                 testPath << baseDir << "/" << ent->d_name << "/" << driverDirs[j];
                 if (checkDriverPathDenylist(testPath.str(), denyList))
                 {
-                    SetResult(NVVS_RESULT_FAIL);
+                    SetResult(SW_PLUGIN_NAME, NVVS_RESULT_FAIL);
                     status = true;
                 }
             }
@@ -343,7 +403,7 @@ bool Software::checkDenylist()
         closedir(dir);
     }
     if (!status)
-        SetResult(NVVS_RESULT_PASS);
+        SetResult(SW_PLUGIN_NAME, NVVS_RESULT_PASS);
     return status;
 }
 
@@ -389,7 +449,7 @@ int Software::checkDriverPathDenylist(std::string driverPath, std::vector<std::s
             {
                 DcgmError d { DcgmError::GpuIdTag::Unknown };
                 DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_DENYLISTED_DRIVER, d, item.c_str());
-                AddError(d);
+                AddError(SW_PLUGIN_NAME, d);
                 return 1;
             }
         }
@@ -400,8 +460,14 @@ int Software::checkDriverPathDenylist(std::string driverPath, std::vector<std::s
 
 bool Software::findLib(std::string library, std::string &error)
 {
-    void *handle;
-    handle = dlopen(library.c_str(), RTLD_NOW);
+    // On Linux, the search procedure considers
+    // 1. (ELF binaries) the directories described by the binary RPATH (if the RUNPATH tag is absent)
+    // 2. the directories described by the LD_LIBRARY_PATH environment variable
+    // 3. (ELF binaries) the directories described by the binary RUNPATH (if the RUNPATH tag is present)
+    // 4. the /etc/ld.so.cache
+    // 5. the /lib directory
+    // 6. the /usr/lib directory
+    void *const handle = dlopen(library.c_str(), RTLD_NOW);
     if (!handle)
     {
         error = dlerror();
@@ -429,8 +495,8 @@ int Software::checkForGraphicsProcesses()
         {
             DcgmError d { gpuId };
             DCGM_ERROR_FORMAT_MESSAGE_DCGM(DCGM_FR_FIELD_QUERY, d, ret, "graphics_pids", gpuId);
-            AddError(d);
-            SetResult(NVVS_RESULT_FAIL);
+            AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+            SetResult(SW_PLUGIN_NAME, NVVS_RESULT_FAIL);
             continue;
         }
 
@@ -441,7 +507,7 @@ int Software::checkForGraphicsProcesses()
                 << " skipping check.";
             std::string info(buf.str());
             DCGM_LOG_WARNING << info;
-            AddInfo(info);
+            AddInfo(SW_PLUGIN_NAME, info);
             continue;
         }
         else if (graphicsPidsVal.value.blob[0] != '\0')
@@ -449,8 +515,8 @@ int Software::checkForGraphicsProcesses()
             // If there's any information here, it means a process is running
             DcgmError d { gpuId };
             DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_GRAPHICS_PROCESSES, d);
-            AddError(d);
-            SetResult(NVVS_RESULT_WARN);
+            AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+            SetResult(SW_PLUGIN_NAME, NVVS_RESULT_WARN);
         }
     }
 
@@ -477,8 +543,8 @@ int Software::checkPersistenceMode()
             {
                 DcgmError d { gpuId };
                 DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_PERSISTENCE_MODE, d, gpuId);
-                AddWarning(d.GetMessage());
-                SetResult(NVVS_RESULT_WARN);
+                AddWarning(SW_PLUGIN_NAME, d.GetMessage());
+                SetResult(SW_PLUGIN_NAME, NVVS_RESULT_WARN);
                 break;
             }
         }
@@ -517,8 +583,8 @@ int Software::checkPageRetirement()
         {
             DcgmError d { gpuId };
             DCGM_ERROR_FORMAT_MESSAGE_DCGM(DCGM_FR_FIELD_QUERY, d, ret, "retired_pages_pending", gpuId);
-            AddError(d);
-            SetResult(NVVS_RESULT_FAIL);
+            AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+            SetResult(SW_PLUGIN_NAME, NVVS_RESULT_FAIL);
             continue;
         }
 
@@ -537,16 +603,21 @@ int Software::checkPageRetirement()
             {
                 DcgmError d { gpuId };
                 DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_DBE_PENDING_PAGE_RETIREMENTS, d, gpuId);
-                AddError(d);
-                SetResult(NVVS_RESULT_FAIL);
+                AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+                SetResult(SW_PLUGIN_NAME, NVVS_RESULT_FAIL);
             }
             else
             {
                 DcgmError d { gpuId };
                 DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_PENDING_PAGE_RETIREMENTS, d, gpuId);
-                AddError(d);
-                SetResult(NVVS_RESULT_FAIL);
+                AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+                SetResult(SW_PLUGIN_NAME, NVVS_RESULT_FAIL);
             }
+            /*
+             * Halt nvvs for failures related to 'pending page retirements' or 'RETIRED_DBE/SBE'. Please be aware that
+             * we will not stop for internal DCGM failures, such as issues with retrieving the current field value.
+             */
+            main_should_stop.store(1);
             continue;
         }
 
@@ -559,8 +630,8 @@ int Software::checkPageRetirement()
         {
             DcgmError d { gpuId };
             DCGM_ERROR_FORMAT_MESSAGE_DCGM(DCGM_FR_FIELD_QUERY, d, ret, "retired_pages_dbe", gpuId);
-            AddError(d);
-            SetResult(NVVS_RESULT_FAIL);
+            AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+            SetResult(SW_PLUGIN_NAME, NVVS_RESULT_FAIL);
             continue;
         }
 
@@ -580,8 +651,8 @@ int Software::checkPageRetirement()
         {
             DcgmError d { gpuId };
             DCGM_ERROR_FORMAT_MESSAGE_DCGM(DCGM_FR_FIELD_QUERY, d, ret, "retired_pages_sbe", gpuId);
-            AddError(d);
-            SetResult(NVVS_RESULT_FAIL);
+            AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+            SetResult(SW_PLUGIN_NAME, NVVS_RESULT_FAIL);
             continue;
         }
 
@@ -599,8 +670,9 @@ int Software::checkPageRetirement()
         {
             DcgmError d { gpuId };
             DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_RETIRED_PAGES_LIMIT, d, DCGM_LIMIT_MAX_RETIRED_PAGES, gpuId);
-            AddError(d);
-            SetResult(NVVS_RESULT_FAIL);
+            AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+            SetResult(SW_PLUGIN_NAME, NVVS_RESULT_FAIL);
+            main_should_stop.store(1);
             continue;
         }
     }
@@ -638,8 +710,8 @@ int Software::checkRowRemapping()
         {
             DcgmError d { gpuId };
             DCGM_ERROR_FORMAT_MESSAGE_DCGM(DCGM_FR_FIELD_QUERY, d, ret, "row_remap_failure", gpuId);
-            AddError(d);
-            SetResultForGpu(gpuId, NVVS_RESULT_FAIL);
+            AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+            SetResultForGpu(SW_PLUGIN_NAME, gpuId, NVVS_RESULT_FAIL);
             continue;
         }
 
@@ -652,9 +724,14 @@ int Software::checkRowRemapping()
         {
             DcgmError d { gpuId };
             DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_ROW_REMAP_FAILURE, d, gpuId);
-            AddError(d);
-            SetResultForGpu(gpuId, NVVS_RESULT_FAIL);
+            AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+            SetResultForGpu(SW_PLUGIN_NAME, gpuId, NVVS_RESULT_FAIL);
 
+            /*
+             * Halt nvvs for failures related to 'row remap/pending' or 'uncorrectable remapped row'. Please be aware
+             * that we will not stop for internal DCGM failures, such as issues with retrieving the current field value.
+             */
+            main_should_stop.store(1);
             continue;
         }
 
@@ -666,8 +743,8 @@ int Software::checkRowRemapping()
         {
             DcgmError d { gpuId };
             DCGM_ERROR_FORMAT_MESSAGE_DCGM(DCGM_FR_FIELD_QUERY, d, ret, "row_remap_pending", gpuId);
-            AddError(d);
-            SetResultForGpu(gpuId, NVVS_RESULT_FAIL);
+            AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+            SetResultForGpu(SW_PLUGIN_NAME, gpuId, NVVS_RESULT_FAIL);
             continue;
         }
 
@@ -684,16 +761,17 @@ int Software::checkRowRemapping()
             {
                 DcgmError d { gpuId };
                 DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_UNCORRECTABLE_ROW_REMAP, d, gpuId);
-                AddError(d);
-                SetResultForGpu(gpuId, NVVS_RESULT_FAIL);
+                AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+                SetResultForGpu(SW_PLUGIN_NAME, gpuId, NVVS_RESULT_FAIL);
             }
             else
             {
                 DcgmError d { gpuId };
                 DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_PENDING_ROW_REMAP, d, gpuId);
-                AddError(d);
-                SetResultForGpu(gpuId, NVVS_RESULT_FAIL);
+                AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+                SetResultForGpu(SW_PLUGIN_NAME, gpuId, NVVS_RESULT_FAIL);
             }
+            main_should_stop.store(1);
         }
     }
 
@@ -717,8 +795,8 @@ int Software::checkInforom()
         {
             DcgmError d { gpuId };
             DCGM_ERROR_FORMAT_MESSAGE_DCGM(DCGM_FR_FIELD_QUERY, d, ret, "inforom_config_valid", gpuId);
-            AddError(d);
-            SetResult(NVVS_RESULT_FAIL);
+            AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+            SetResult(SW_PLUGIN_NAME, NVVS_RESULT_FAIL);
             continue;
         }
 
@@ -730,8 +808,8 @@ int Software::checkInforom()
                 << " when checking the validity of the inforom. Skipping this check.";
             std::string info(buf.str());
             DCGM_LOG_WARNING << info;
-            AddInfo(info);
-            SetResult(NVVS_RESULT_SKIP);
+            AddInfo(SW_PLUGIN_NAME, info);
+            SetResult(SW_PLUGIN_NAME, NVVS_RESULT_SKIP);
             continue;
         }
         else if (inforomValidVal.status != DCGM_ST_OK)
@@ -741,7 +819,7 @@ int Software::checkInforom()
                 << " when checking the validity of the inforom. Skipping this check.";
             std::string info(buf.str());
             DCGM_LOG_WARNING << info;
-            AddInfo(info);
+            AddInfo(SW_PLUGIN_NAME, info);
             continue;
         }
         else if (inforomValidVal.value.i64 == 0)
@@ -749,8 +827,8 @@ int Software::checkInforom()
             // Inforom is not valid
             DcgmError d { gpuId };
             DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_CORRUPT_INFOROM, d, gpuId);
-            AddError(d);
-            SetResult(NVVS_RESULT_FAIL);
+            AddErrorForGpu(SW_PLUGIN_NAME, gpuId, d);
+            SetResult(SW_PLUGIN_NAME, NVVS_RESULT_FAIL);
             continue;
         }
     }
@@ -790,8 +868,8 @@ int Software::checkForBadEnvVaribles()
         /* Variable found. Warn */
         DcgmError d { DcgmError::GpuIdTag::Unknown };
         DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_BAD_CUDA_ENV, d, checkKey.c_str());
-        AddError(d);
-        SetResult(NVVS_RESULT_WARN);
+        AddError(SW_PLUGIN_NAME, d);
+        SetResult(SW_PLUGIN_NAME, NVVS_RESULT_WARN);
     }
 
     return 0;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@
 #include "PluginDevice.h"
 
 
+#include <PluginStrings.h>
 #include <cublas_proxy.hpp>
 #include <dcgm_structs.h>
 #include <iostream>
@@ -46,7 +47,7 @@ public:
     void *hostC;
 
     SmPerfDevice(unsigned int ndi, const char *pciBusId, Plugin *p)
-        : PluginDevice(ndi, pciBusId, p)
+        : PluginDevice(PCIE_PLUGIN_NAME, ndi, pciBusId, p)
         , allocatedCublasHandle(0)
         , cublasHandle(0)
         , deviceA(0)
@@ -133,7 +134,9 @@ public:
 
     std::vector<PluginDevice *> gpu; /* Per-gpu information */
 
-    void Go(unsigned int numParameters, const dcgmDiagPluginTestParameter_t *testParameters);
+    void Go(std::string const &testName,
+            unsigned int numParameters,
+            const dcgmDiagPluginTestParameter_t *testParameters);
 
     dcgmHandle_t GetHandle();
 

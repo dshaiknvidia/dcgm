@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -42,9 +42,6 @@ endmacro()
 
 set(LOCAL_DCGM_CUDA_WORKER "")
 
-if (NOT ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64")
-    define_dcgm_cuda_worker(10)
-endif()
 define_dcgm_cuda_worker(11)
 define_dcgm_cuda_worker(12)
 

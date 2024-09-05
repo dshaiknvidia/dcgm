@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -329,6 +329,33 @@ public:
      * @return a string representing the DCGM return code
      */
     std::string ErrorAsString(dcgmReturn_t ret);
+
+
+    /*
+     * Checks the HBM error fields
+     *
+     * @return:
+     *
+     * DR_SUCCESS     : on success
+     * DR_COMM_ERROR  : if we couldn't get the information from DCGM
+     * DR_VIOLATION   : if the temperature was ever too high
+     */
+    int CheckHBMErrorFields(dcgmDiagPluginGpuInfo_t gpuInfo, std::vector<DcgmError> &errors, timelib64_t startTime);
+
+    /*
+     * Checks if the HBM temperature set by user is less than the max HBM temperature in the specified time period, and
+     * adds an error message if the temperature was too high.
+     *
+     * @return:
+     *
+     * DR_SUCCESS     : on success
+     * DR_COMM_ERROR  : if we couldn't get the information from DCGM
+     * DR_VIOLATION   : if the temperature was ever too high
+     */
+    int VerifyHBMTemperature(unsigned int gpuId,
+                             std::vector<DcgmError> &errorList,
+                             long long maxTemp,
+                             timelib64_t startTime);
 
 private:
     std::vector<unsigned short> m_fieldIds;

@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 import sys
 
 if len(sys.argv) < 3:
-    print "USAGE: find_ptx_symbols.py <input.ptx> <output.h>\nThere must be two arguments supplied to this script"
+    print("USAGE: find_ptx_symbols.py <input.ptx> <output.h>\nThere must be two arguments supplied to this script")
     sys.exit(1)
 
 ptxFilename = sys.argv[1]

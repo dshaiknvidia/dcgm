@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -2576,6 +2576,69 @@ dcgmReturn_t PhysicalGpu::RunSubtestPcieBandwidth(void)
                       m_parameters.m_targetMaxValue ? "true" : "false");
 
     return rtSt;
+}
+
+/*****************************************************************************/
+dcgmReturn_t PhysicalGpu::HelperGetCudaVisibleGPUs(std::string &cudaVisibleGPUs)
+{
+    int i;
+
+    dcgmDeviceTopology_v1 deviceTopo {
+        .version = dcgmDeviceTopology_version1, .cpuAffinityMask = {}, .numGpus = 0, .gpuPaths = {}
+    };
+
+    dcgmReturn_t dcgmReturn = dcgmGetDeviceTopology(m_dcgmHandle, m_gpuId, &deviceTopo);
+
+    if (dcgmReturn == DCGM_ST_NOT_SUPPORTED) // No other GPUs for NvLink tests
+    {
+        deviceTopo.numGpus = 0;
+    }
+    else if (dcgmReturn != DCGM_ST_OK)
+    {
+        DCGM_LOG_ERROR << "dcgmGetDeviceTopology failed with " << dcgmReturn << " for gpuId " << m_gpuId << ".";
+
+        return DCGM_ST_NOT_SUPPORTED;
+    }
+
+    // Iterate through NvLink-connected GPUS.
+
+    cudaVisibleGPUs = "";
+
+    for (i = -1; i < (int)deviceTopo.numGpus; i++)
+    {
+        dcgmGroupEntityPair_t entity { DCGM_FE_GPU, i < 0 ? m_gpuId : deviceTopo.gpuPaths[i].gpuId };
+        unsigned short fieldId { DCGM_FI_DEV_CUDA_VISIBLE_DEVICES_STR };
+
+        dcgmFieldValue_v2 value {};
+
+        dcgmReturn = dcgmEntitiesGetLatestValues(m_dcgmHandle, &entity, 1, &fieldId, 1, DCGM_FV_FLAG_LIVE_DATA, &value);
+
+        if (dcgmReturn != DCGM_ST_OK || value.status != DCGM_ST_OK)
+        {
+            DCGM_LOG_ERROR << "Could not map Entity ID [" << entity.entityGroupId << "," << entity.entityId
+                           << "] to prospective CUDA_VISIBLE_DEVICES environment variable (" << (int)dcgmReturn << "), "
+                           << value.status;
+
+            return DCGM_ST_GENERIC_ERROR;
+        }
+
+        if (!strncmp(value.value.str, "MIG", 3))
+        {
+            DCGM_LOG_INFO << "Entity ID [" << entity.entityGroupId << "," << entity.entityId << "] maps to MIG GPU "
+                          << value.value.str << "; ignored for CUDA_VISIBLE_DEVICES";
+
+            continue;
+        }
+
+        if (!cudaVisibleGPUs.empty())
+        {
+            cudaVisibleGPUs += ",";
+        }
+
+        cudaVisibleGPUs += value.value.str;
+    }
+
+    return DCGM_ST_OK;
 }
 
 /*****************************************************************************/

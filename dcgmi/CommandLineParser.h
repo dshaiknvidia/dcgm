@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,9 @@ public:
     // only accepts a subsytem name
     static dcgmReturn_t ProcessCommandLine(int argc, char const *const *argv);
 
+#ifndef DCGMI_TESTS
 private:
+#endif
     struct StaticConstructor
     {
         StaticConstructor();
@@ -62,6 +64,13 @@ private:
 
     // Helper to validate the throttle mask parameter
     static void ValidateThrottleMask(const std::string &throttleMask);
+
+    static std::string ConcatenateParameters(std::vector<std::string> const &parameters);
+
+    static void ValidateParameters(const std::string &parameters);
+
+    // Totals the requested test durations and throws an error if they exceed the requested timeout
+    static void CheckTestDurationAndTimeout(const std::string &parameters, unsigned int timeoutSeconds);
 };
 
 #endif // DCGMI_CLI_PARSER_H

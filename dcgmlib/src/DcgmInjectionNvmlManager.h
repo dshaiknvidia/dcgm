@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,9 +33,22 @@ public:
 #ifdef INJECTION_LIBRARY_AVAILABLE
     dcgmReturn_t InjectGpu(nvmlDevice_t nvmlDevice,
                            const char *key,
-                           const injectNvmlVal_t &value,
                            const injectNvmlVal_t *extraKeys,
-                           unsigned int extraKeyCount);
+                           unsigned int extraKeyCount,
+                           const injectNvmlRet_t &injectNvmlRet);
+
+    dcgmReturn_t InjectGpuForFollowingCalls(nvmlDevice_t nvmlDevice,
+                                            const char *key,
+                                            const injectNvmlVal_t *extraKeys,
+                                            unsigned int extraKeyCount,
+                                            const injectNvmlRet_t *injectNvmlRets,
+                                            unsigned int retCount);
+
+    dcgmReturn_t InjectedGpuReset(nvmlDevice_t nvmlDevice);
+
+    dcgmReturn_t GetFuncCallCount(injectNvmlFuncCallCounts_t *funcCallCounts);
+
+    dcgmReturn_t ResetFuncCallCount();
 #endif
 
     dcgmReturn_t CreateDevice(unsigned int index);

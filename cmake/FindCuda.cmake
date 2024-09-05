@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
 
 include(utils)
 
-set(Cuda10_prefix usr/local/cuda-10.0)
 set(Cuda11_prefix usr/local/cuda-11.8)
 set(Cuda12_prefix usr/local/cuda-12.0)
 
@@ -95,9 +94,6 @@ macro (load_cuda cuda_version)
 
 endmacro()
 
-if (NOT DEFINED CUDA10_INCLUDE_DIR AND NOT ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64")
-    load_cuda(10)
-endif()
 
 if (NOT DEFINED CUDA11_INCLUDE_DIR)
     load_cuda(11)
@@ -107,6 +103,5 @@ if (NOT DEFINED CUDA12_INCLUDE_DIR)
     load_cuda(12)
 endif()
 
-unset(Cuda10_prefix)
 unset(Cuda11_prefix)
 unset(Cuda12_prefix)

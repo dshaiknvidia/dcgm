@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -261,7 +261,7 @@ unsigned int DcgmSystem::GetCudaMajorVersion()
             break;
         default:
         {
-            log_error("Unable to detect Cuda version: {}. Please verify that libcuda.so is present on the system.",
+            log_error("Unable to detect Cuda version: {}. Please verify that libcuda.so.1 is present on the system.",
                       errorString(ret));
             return 0;
         }

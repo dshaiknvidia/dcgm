@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -613,6 +613,16 @@ TEST_CASE("dcgm_errors: check full message")
     WARN(d.GetMessage());
     CHECK(d.GetMessage().length() < DCGM_ERR_MSG_LENGTH);
     DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_SXID_ERROR, d, 1);
+    WARN(d.GetMessage());
+    CHECK(d.GetMessage().length() < DCGM_ERR_MSG_LENGTH);
+    DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_GFLOPS_THRESHOLD_VIOLATION, d, 100.0, "GFLOPs", 0, 65.0);
+    WARN(d.GetMessage());
+    CHECK(d.GetMessage().length() < DCGM_ERR_MSG_LENGTH);
+    std::string_view expected_msg(
+        "Detected 100.00 GFLOPs for GPU 0 which is below the threshold 65.00 " DCGM_FR_GFLOPS_THRESHOLD_VIOLATION_NEXT);
+    CHECK(d.GetMessage() == expected_msg);
+    // count, gpu id
+    DCGM_ERROR_FORMAT_MESSAGE(DCGM_FR_NAN_VALUE, d, 0, 0); // "Found %ld NaN-value memory elements on GPU %u"
     WARN(d.GetMessage());
     CHECK(d.GetMessage().length() < DCGM_ERR_MSG_LENGTH);
 }

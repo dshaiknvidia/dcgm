@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,6 +61,12 @@ void dcgmStrncpy(char *destination, const char *source, size_t destinationSize)
 {
     strncpy(destination, source, destinationSize);
     destination[destinationSize - 1] = '\0';
+}
+
+std::string dcgmStrToLower(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+    return s;
 }
 
 namespace DcgmNs

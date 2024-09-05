@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -79,6 +79,8 @@ void SafeCopyTo(char (&dst)[N], char const *src)
     auto result = fmt::format_to_n(dst, N - 1, "{}\0", src);
     *result.out = '\0';
 }
+
+std::string dcgmStrToLower(std::string s);
 
 namespace DcgmNs
 {

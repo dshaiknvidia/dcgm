@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,12 +32,16 @@ const std::vector<DcgmError> Test::m_emptyErrors;
 const nvvsPluginGpuErrors_t Test::m_emptyPerGpuErrors;
 
 /*****************************************************************************/
-Test::Test(dcgmPerGpuTestIndices_t index, const std::string &description, const std::string &testGroup)
+Test::Test(dcgmPerGpuTestIndices_t index,
+           const std::string &description,
+           const std::string &testGroup,
+           const std::string &pluginName)
     : m_index(index)
     , m_argMap()
     , m_skipTest(false)
     , m_description(description)
     , m_testGroup(testGroup)
+    , m_pluginName(pluginName)
 {}
 
 /*****************************************************************************/

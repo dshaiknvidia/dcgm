@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -57,8 +57,8 @@ errorTuples = [(dcgm_fields.DCGM_FI_DEV_CLOCK_THROTTLE_REASONS, DIAG_THROTTLE_WA
 ################################################################################
 class FailedTestInfo():
     ################################################################################
-    def __init__(self, testname, warning, gpuInfo=None):
-        self.m_warning = warning
+    def __init__(self, testname, warnings, gpuInfo=None):
+        self.m_warning = warnings
         self.m_testname = testname
         self.m_info = ''
         self.m_gpuField = gpuInfo

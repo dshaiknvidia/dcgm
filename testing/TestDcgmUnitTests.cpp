@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,6 @@
 #include "TestHealthMonitor.h"
 #include "TestKeyedVector.h"
 #include "TestPolicyManager.h"
-#include "TestStatCollection.h"
 #include "TestTopology.h"
 #include "TestVersioning.h"
 #include "dcgm_test_apis.h"
@@ -83,11 +82,6 @@ public:
         m_modules[moduleTag] = module;
 
         module = (TestDcgmModule *)(new TestFieldGroups());
-        module->SetDcgmHandle(m_dcgmHandle);
-        moduleTag            = module->GetTag();
-        m_modules[moduleTag] = module;
-
-        module = (TestDcgmModule *)(new TestStatCollection());
         module->SetDcgmHandle(m_dcgmHandle);
         moduleTag            = module->GetTag();
         m_modules[moduleTag] = module;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@
 #include "timelib.h"
 #include <CudaCommon.h>
 #include <NvvsStructs.h>
+#include <PluginStrings.h>
 
 #define CTX_CREATED 0x0
 #define CTX_SKIP    0x1
@@ -37,7 +38,7 @@ public:
     CUcontext cuContext {};
 
     ContextCreateDevice(unsigned int ndi, const char *pciBusId, Plugin *p, DcgmHandle &handle)
-        : PluginDevice(ndi, pciBusId, p)
+        : PluginDevice(CTXCREATE_PLUGIN_NAME, ndi, pciBusId, p)
         , cuContext(0)
     {
         char buf[256] = { 0 };

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -133,6 +133,8 @@ dcgm_error_meta_t dcgmErrorMeta[DCGM_FR_ERROR_SENTINEL] = {
     DCGM_ERROR_TABLE_ENTRY(DCGM_FR_PCIE_REPLAY_THRESHOLD_VIOLATION, DCGM_ERROR_ISOLATE, DCGM_FR_EC_HARDWARE_PCIE),
     DCGM_ERROR_TABLE_ENTRY(DCGM_FR_CUDA_FM_NOT_INITIALIZED, DCGM_ERROR_MONITOR, DCGM_FR_EC_SOFTWARE_CUDA),
     DCGM_ERROR_TABLE_ENTRY(DCGM_FR_SXID_ERROR, DCGM_ERROR_ISOLATE, DCGM_FR_EC_SOFTWARE_XID),
+    DCGM_ERROR_TABLE_ENTRY(DCGM_FR_GFLOPS_THRESHOLD_VIOLATION, DCGM_ERROR_TRIAGE, DCGM_FR_EC_PERF_VIOLATION),
+    DCGM_ERROR_TABLE_ENTRY(DCGM_FR_NAN_VALUE, DCGM_ERROR_ISOLATE, DCGM_FR_EC_HARDWARE_MEMORY),
 };
 
 dcgmErrorSeverity_t dcgmErrorGetPriorityByCode(unsigned int code)
@@ -281,6 +283,11 @@ DCGM_PUBLIC_API const char *errorString(dcgmReturn_t result)
             return "The DCGM diagnostic was killed by a signal";
         case DCGM_ST_ALREADY_INITIALIZED:
             return "The object has already been initialized";
+        case DCGM_ST_NVML_NOT_LOADED:
+            return "Cannot perform the requested operation because NVML doesn't exist on this system.";
+        case DCGM_ST_NVML_DRIVER_TIMEOUT:
+            return "Cannot perform the requested operation because an NVML driver timeout error was detected. "
+                   "Verify NVML is responsive before restarting the hostengine.";
         default:
             // Wrong error codes should be handled by the caller
             return 0;

@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import DcgmSystem
 @test_utils.run_with_standalone_host_engine(20)
 @test_utils.run_with_initialized_client()
 @test_utils.run_only_with_all_supported_gpus()
+@test_utils.run_only_with_nvml()
 def test_dcgm_topology_device_standalone(handle, gpuIds):
     """
     Verifies that the topology get for the default group works
@@ -52,6 +53,7 @@ def test_dcgm_topology_device_standalone(handle, gpuIds):
 @test_utils.run_with_standalone_host_engine(20)
 @test_utils.run_with_initialized_client()
 @test_utils.run_only_with_all_supported_gpus()
+@test_utils.run_only_with_nvml()
 def test_dcgm_topology_group_single_gpu_standalone(handle, gpuIds):
     """
     Verifies that the topology get for a group works for a single GPU
@@ -136,11 +138,13 @@ def helper_test_select_gpus_by_topology(handle, gpuIds):
 
 @test_utils.run_with_embedded_host_engine()
 @test_utils.run_only_with_live_gpus()
+@test_utils.run_only_with_nvml()
 def test_select_gpus_by_topology_embedded(handle, gpuIds):
     helper_test_select_gpus_by_topology(handle, gpuIds)
 
 @test_utils.run_with_standalone_host_engine(20)
 @test_utils.run_with_initialized_client()
 @test_utils.run_only_with_all_supported_gpus()
+@test_utils.run_only_with_nvml()
 def test_select_gpus_by_topology_standalone(handle, gpuIds):
     helper_test_select_gpus_by_topology(handle, gpuIds)

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,6 @@
  */
 #ifndef DCGM_GPU_HARDWARE_LIMITS_H
 #define DCGM_GPU_HARDWARE_LIMITS_H
-
-// 8 replays per minute is the maximum recommended by RM
-#define DCGM_LIMIT_MAX_PCIREPLAY_RATE 8
-
 
 // defined via bug 1665722
 // Max retired pages updated to match the field diag: http://nvbugs/3024088

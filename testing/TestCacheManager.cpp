@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -73,7 +73,7 @@ static std::unique_ptr<DcgmCacheManager> createCacheManager(int pollInLockStep)
         return nullptr;
     }
 
-    st = cacheManager->Init(pollInLockStep, 86400.0);
+    st = cacheManager->Init(pollInLockStep, 86400.0, true);
     if (st)
     {
         fprintf(stderr, "cacheManager->Init returned %d\n", st);
@@ -1913,7 +1913,7 @@ int TestCacheManager::TestCountBasedQuota()
                                      gpuId,
                                      fieldMeta->fieldId,
                                      1000000,
-                                     86400.0,
+                                     0,
                                      maxKeepSamples,
                                      watcher,
                                      false,
@@ -2426,7 +2426,7 @@ int TestCacheManager::TestAttachDetachNoWatches(void)
 
     // Must detach first so that nvmlInit_v2() is called
     dcm.DetachGpus();
-    dcgmReturn_t ret = dcm.Init(1, 86400.0);
+    dcgmReturn_t ret = dcm.Init(1, 86400.0, true);
     if (ret != DCGM_ST_OK)
     {
         fprintf(stderr, "TestAttachDetachNoWatches(): Error attaching to GPUs: %s.", errorString(ret));
@@ -2508,7 +2508,7 @@ int TestCacheManager::TestAttachDetachWithWatches(void)
 
     // Must detach first so we don't think nvml has been initialized
     dcm.DetachGpus();
-    ret = dcm.Init(1, 86400.0);
+    ret = dcm.Init(1, 86400.0, true);
     if (ret != DCGM_ST_OK)
     {
         fprintf(stderr, "TestAttachDetachWithWatches(): Error attaching to GPUs: %s.", errorString(ret));

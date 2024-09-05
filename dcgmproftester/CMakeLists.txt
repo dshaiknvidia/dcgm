@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -66,9 +66,6 @@ macro(define_dcgmproftester cuda_version)
     target_link_options(${dcgmproftester_exec} PRIVATE -Wl,--version-script,${CMAKE_CURRENT_SOURCE_DIR}/proftester.linux_def)
 endmacro()
 
-if (NOT ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64")
-    define_dcgmproftester(10)
-endif()
 define_dcgmproftester(11)
 define_dcgmproftester(12)
 

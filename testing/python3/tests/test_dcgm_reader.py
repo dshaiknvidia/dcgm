@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -111,6 +111,8 @@ def test_reading_specific_data(handle, gpuIds):
 @test_utils.run_with_standalone_host_engine(20)
 @test_utils.run_with_initialized_client()
 @test_utils.run_only_with_live_gpus()
+@test_utils.run_only_on_non_mig_gpus()
+@test_utils.run_with_non_mig_cuda_visible_devices()
 @test_utils.exclude_confidential_compute_gpus()
 @test_utils.run_with_cuda_app()
 def test_reading_pid_fields(handle, gpuIds, cudaApp):

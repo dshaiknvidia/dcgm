@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -479,11 +479,11 @@ class DcgmGroupAction:
 
     validate is what sort of validation to do. See dcgm_structs.DCGM_POLICY_VALID_* defines.
 
-    Returns a dcgm_structs.c_dcgmDiagResponse_v5 instance
+    Returns a dcgm_structs.c_dcgmDiagResponse_v10 instance
     '''
     def Validate(self, validate):
-        runDiagInfo = dcgm_structs.c_dcgmRunDiag_v7()
-        runDiagInfo.version = dcgm_structs.dcgmRunDiag_version7
+        runDiagInfo = dcgm_structs.c_dcgmRunDiag_v8()
+        runDiagInfo.version = dcgm_structs.dcgmRunDiag_version8
         runDiagInfo.validate = validate
         runDiagInfo.groupId = self._groupId
 
@@ -495,7 +495,7 @@ class DcgmGroupAction:
 
     diagLevel is the level of diagnostic desired. See dcgm_structs.DCGM_DIAG_LVL_* constants.
 
-    Returns a dcgm_structs.c_dcgmDiagResponse_v5 instance
+    Returns a dcgm_structs.c_dcgmDiagResponse_v10 instance
     '''
     def RunDiagnostic(self, diagLevel):
         ret = dcgm_agent.dcgmRunDiagnostic(self._dcgmHandle.handle, self._groupId, diagLevel)
@@ -507,8 +507,8 @@ class DcgmGroupAction:
     Returns a dcgm_structs.c_dcgmDiagResponse_v5 instance
     '''
     def RunSpecificTest(self, testName):
-        runDiagInfo = dcgm_structs.c_dcgmRunDiag_v7()
-        runDiagInfo.version = dcgm_structs.dcgmRunDiag_version7
+        runDiagInfo = dcgm_structs.c_dcgmRunDiag_v8()
+        runDiagInfo.version = dcgm_structs.dcgmRunDiag_version8
         for i in range(len(testName)):
             runDiagInfo.testNames[0][i] = testName[i]
         runDiagInfo.groupId = self._groupId

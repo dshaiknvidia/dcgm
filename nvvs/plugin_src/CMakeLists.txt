@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,6 +43,7 @@ macro(declare_nvvs_plugin plugin_name dirpath)
 endmacro()
 
 macro(define_plugin PLUGIN_NAME CUDA_VER)
+    find_package(fmt REQUIRED)
     add_library(${PLUGIN_NAME}_${CUDA_VER} SHARED)
     nvvs_plugin_srcs(${PLUGIN_NAME}_${CUDA_VER})
     target_include_directories(${PLUGIN_NAME}_${CUDA_VER} PRIVATE ${CUDA${CUDA_VER}_INCLUDE_DIR})
@@ -50,9 +51,10 @@ macro(define_plugin PLUGIN_NAME CUDA_VER)
     target_link_libraries(${PLUGIN_NAME}_${CUDA_VER} PRIVATE ${CUDA${CUDA_VER}_STATIC_LIBS})
     target_link_libraries(${PLUGIN_NAME}_${CUDA_VER} PRIVATE sdk_nvml_essentials_objects)
     target_link_libraries(${PLUGIN_NAME}_${CUDA_VER} PUBLIC ${CUDA${CUDA_VER}_LIBS})
-    target_link_libraries(${PLUGIN_NAME}_${CUDA_VER} PUBLIC pluginCommon_${CUDA_VER})
+    target_link_libraries(${PLUGIN_NAME}_${CUDA_VER} PUBLIC pluginCommon)
     target_link_libraries(${PLUGIN_NAME}_${CUDA_VER} PRIVATE pluginCudaCommon_${CUDA_VER})
     target_link_libraries(${PLUGIN_NAME}_${CUDA_VER} PRIVATE dcgm_logging)
+    target_link_libraries(${PLUGIN_NAME}_${CUDA_VER} PRIVATE fmt::fmt)
     target_link_libraries(${PLUGIN_NAME}_${CUDA_VER} PRIVATE dcgm_common ${JSONCPP_STATIC_LIBS})
     set_target_properties(${PLUGIN_NAME}_${CUDA_VER} PROPERTIES LIBRARY_OUTPUT_NAME "${PLUGIN_NAME}")
     update_lib_ver(${PLUGIN_NAME}_${CUDA_VER})
@@ -67,15 +69,13 @@ endmacro()
 
 LIST(APPEND SUPPORTED_CUDA_VERSIONS 12)
 LIST(APPEND SUPPORTED_CUDA_VERSIONS 11)
-IF (NOT ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64")
-    LIST(APPEND SUPPORTED_CUDA_VERSIONS 10)
-ENDIF()
 
 LIST(SORT SUPPORTED_CUDA_VERSIONS)
 
 LIST(APPEND NVVS_PLUGINS "")
 LIST(APPEND BW_CHECKERS "")
 
+add_subdirectory(test_common)
 add_subdirectory(common)
 add_subdirectory(cuda_common)
 add_subdirectory(pcie)
@@ -87,7 +87,6 @@ add_subdirectory(memory)
 #add_subdirectory(smstress)
 add_subdirectory(software)
 add_subdirectory(memtest)
-add_subdirectory(test_common)
 
 foreach(plugin ${NVVS_PLUGINS})
     install(TARGETS ${plugin}

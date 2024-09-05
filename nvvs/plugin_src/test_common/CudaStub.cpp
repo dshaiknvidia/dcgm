@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@
  */
 
 int cudaAttributeValue;
+cudaError_t cudaStreamCreateResult = cudaSuccess;
 
 cudaError_t cudaGetDeviceCount(int *cudaDeviceCount)
 {
@@ -158,10 +159,25 @@ cudaError_t cudaEventDestroy(cudaEvent_t event)
 
 cudaError_t cudaStreamCreate(cudaStream_t *stream)
 {
-    return cudaSuccess;
+    return cudaStreamCreateResult;
 }
 
 cudaError_t cudaStreamDestroy(cudaStream_t stream)
+{
+    return cudaSuccess;
+}
+
+cudaError_t cudaStreamSynchronize(cudaStream_t stream)
+{
+    return cudaSuccess;
+}
+
+cudaError_t cudaGetDeviceProperties(struct cudaDeviceProp *prop, int device)
+{
+    return cudaSuccess;
+}
+
+cudaError_t cudaEventQuery(cudaEvent_t event)
 {
     return cudaSuccess;
 }

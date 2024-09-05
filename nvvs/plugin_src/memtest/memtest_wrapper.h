@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,7 +43,9 @@ public:
     {
         throw std::runtime_error("Not implemented in this test.");
     }
-    void Go(unsigned int numParameters, const dcgmDiagPluginTestParameter_t *testParameters) override;
+    void Go(std::string const &testName,
+            unsigned int numParameters,
+            const dcgmDiagPluginTestParameter_t *testParameters) override;
 
     dcgmHandle_t GetHandle() const;
 

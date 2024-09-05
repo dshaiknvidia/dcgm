@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -489,6 +489,7 @@ private:
      *****************************************************************************/
     DcgmHostEngineHandler()
         : m_dcgmIpc(DCGM_HE_NUM_WORKERS)
+        , m_nvmlLoaded(false)
     {}
     explicit DcgmHostEngineHandler(dcgmStartEmbeddedV2Params_v1 params);
     virtual ~DcgmHostEngineHandler();
@@ -530,6 +531,7 @@ private:
     unsigned int m_hostengineHealth {};
     std::string m_serviceAccount;
     bool m_usingInjectionNvml {};
+    bool m_nvmlLoaded {};
 };
 
 #endif /* DCGMHOSTENGINEHANDLER_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,13 +47,13 @@ TEST_CASE("PluginLib: General")
     TestParameters tp;
     tp.AddDouble(PS_LOGFILE_TYPE, 0.0);
     setenv("result", "pass", 1);
-    pl.RunTest(10, &tp);
+    pl.RunTest("test", 10, &tp);
 
-    nvvsPluginResult_t result = pl.GetResult();
+    nvvsPluginResult_t result = pl.GetResult("test");
     CHECK(result == NVVS_RESULT_PASS);
 
     setenv("result", "fail", 1);
-    pl.RunTest(10, &tp);
-    result = pl.GetResult();
+    pl.RunTest("test", 10, &tp);
+    result = pl.GetResult("test");
     CHECK(result == NVVS_RESULT_FAIL);
 }

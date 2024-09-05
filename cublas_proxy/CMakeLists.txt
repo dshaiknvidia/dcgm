@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -43,9 +43,6 @@ set(LOCAL_CUBLAS_PROXY "")
 
 add_subdirectory(Cuda12)
 add_subdirectory(Cuda11)
-if (NOT ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64")
-    add_subdirectory(Cuda10)
-endif()
 
 set(DCGM_CUBLAS_PROXY ${LOCAL_CUBLAS_PROXY} PARENT_SCOPE)
 

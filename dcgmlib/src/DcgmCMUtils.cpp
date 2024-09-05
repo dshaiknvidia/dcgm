@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -135,6 +135,9 @@ const char *NvmlErrorToStringValue(nvmlReturn_t nvmlReturn)
         case NVML_ERROR_NOT_FOUND:
             return DCGM_STR_NOT_FOUND;
 
+        case NVML_ERROR_UNKNOWN:
+            return DCGM_STR_BLANK;
+
         default:
             return DCGM_STR_BLANK;
     }
@@ -159,6 +162,9 @@ long long NvmlErrorToInt64Value(nvmlReturn_t nvmlReturn)
 
         case NVML_ERROR_NOT_FOUND:
             return DCGM_INT64_NOT_FOUND;
+
+        case NVML_ERROR_UNKNOWN:
+            return DCGM_INT64_BLANK;
 
         default:
             return DCGM_INT64_BLANK;
@@ -185,6 +191,9 @@ int NvmlErrorToInt32Value(nvmlReturn_t nvmlReturn)
         case NVML_ERROR_NOT_FOUND:
             return DCGM_INT32_NOT_FOUND;
 
+        case NVML_ERROR_UNKNOWN:
+            return DCGM_INT32_BLANK;
+
         default:
             return DCGM_INT32_BLANK;
     }
@@ -209,6 +218,9 @@ double NvmlErrorToDoubleValue(nvmlReturn_t nvmlReturn)
 
         case NVML_ERROR_NOT_FOUND:
             return DCGM_FP64_NOT_FOUND;
+
+        case NVML_ERROR_UNKNOWN:
+            return DCGM_FP64_BLANK;
 
         default:
             return DCGM_FP64_BLANK;

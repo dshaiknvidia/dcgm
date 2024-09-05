@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -62,11 +62,30 @@ class Plugin
 {
     /***************************PUBLIC***********************************/
 public:
+    class PluginResult
+    {
+    public:
+        std::vector<nvvsPluginResult_t> m_nonGpuResults; /* Results for non-GPU specific tests */
+        std::vector<DcgmError> m_errors;                 /* List of errors from the plugin */
+        std::vector<DcgmError>
+            m_optionalErrors; /* List of errors from the plugin that shouldn't be reported if others are present */
+        std::vector<std::string> m_warnings;    /* List of general warnings from the plugin */
+        std::vector<std::string> m_verboseInfo; /* List of general verbose output from the plugin */
+
+        nvvsPluginGpuResults_t m_resultsPerGPU;      /* Per GPU results: Pass | Fail | Skip | Warn */
+        nvvsPluginGpuErrors_t m_errorsPerGPU;        /* Per GPU list of errors from the plugin */
+        nvvsPluginGpuMessages_t m_warningsPerGPU;    /* Per GPU list of warnings from the plugin */
+        nvvsPluginGpuMessages_t m_verboseInfoPerGPU; /* Per GPU list of verbose output from the plugin */
+    };
+
     Plugin();
     virtual ~Plugin();
 
     /* Interface methods for running the plugin */
-    virtual void Go(unsigned int numParameters, const dcgmDiagPluginTestParameter_t *testParameters) = 0;
+    virtual void Go(std::string const &testName,
+                    unsigned int numParameters,
+                    const dcgmDiagPluginTestParameter_t *testParameters)
+        = 0;
 
     /* Getters and Setters */
     /*************************************************************************/
@@ -104,7 +123,7 @@ public:
      *      - NVVS_RESULT_WARN if *any* GPU had result NVVS_RESULT_WARN
      *      - NVVS_RESULT_SKIP if all GPUs had result NVVS_RESULT_SKIP
      */
-    nvvsPluginResult_t GetResult();
+    nvvsPluginResult_t GetResult(std::string const &testName);
 
     /*************************************************************************/
     /*
@@ -113,9 +132,9 @@ public:
      * Returns:
      *      - nvvsPluginGpuResults_t (map from gpu id to results)
      */
-    const nvvsPluginGpuResults_t &GetGpuResults() const
+    const nvvsPluginGpuResults_t &GetGpuResults(std::string const &testName)
     {
-        return m_resultsPerGPU;
+        return m_results[testName].m_resultsPerGPU;
     }
 
     /*************************************************************************/
@@ -123,51 +142,51 @@ public:
      * Sets the result for all GPUs to the result given by res.
      *
      */
-    void SetResult(nvvsPluginResult_t res);
+    void SetResult(std::string const &testName, nvvsPluginResult_t res);
 
     /*************************************************************************/
     /*
      * Sets the result for the GPU given by gpuId to the result given by res.
      *
      */
-    void SetResultForGpu(unsigned int gpuId, nvvsPluginResult_t res);
+    void SetResultForGpu(std::string const &testName, unsigned int gpuId, nvvsPluginResult_t res);
 
-    void SetNonGpuResult(nvvsPluginResult_t res);
+    void SetNonGpuResult(std::string const &testName, nvvsPluginResult_t res);
 
     /*************************************************************************/
-    const std::vector<std::string> &GetWarnings() const
+    const std::vector<std::string> &GetWarnings(std::string const &testName)
     {
-        return m_warnings;
+        return m_results[testName].m_warnings;
     }
 
     /*************************************************************************/
-    const std::vector<DcgmError> &GetErrors() const
+    const std::vector<DcgmError> &GetErrors(std::string const &testName)
     {
-        return m_errors;
+        return m_results[testName].m_errors;
     }
 
     /*************************************************************************/
-    const nvvsPluginGpuErrors_t &GetGpuErrors() const
+    const nvvsPluginGpuErrors_t &GetGpuErrors(std::string const &testName)
     {
-        return m_errorsPerGPU;
+        return m_results[testName].m_errorsPerGPU;
     }
 
     /*************************************************************************/
-    const nvvsPluginGpuMessages_t &GetGpuWarnings() const
+    const nvvsPluginGpuMessages_t &GetGpuWarnings(std::string const &testName)
     {
-        return m_warningsPerGPU;
+        return m_results[testName].m_warningsPerGPU;
     }
 
     /*************************************************************************/
-    const std::vector<std::string> &GetVerboseInfo() const
+    const std::vector<std::string> &GetVerboseInfo(std::string const &testName)
     {
-        return m_verboseInfo;
+        return m_results[testName].m_verboseInfo;
     }
 
     /*************************************************************************/
-    const nvvsPluginGpuMessages_t &GetGpuVerboseInfo() const
+    const nvvsPluginGpuMessages_t &GetGpuVerboseInfo(std::string const &testName)
     {
-        return m_verboseInfoPerGPU;
+        return m_results[testName].m_verboseInfoPerGPU;
     }
 
     /*************************************************************************/
@@ -197,7 +216,7 @@ public:
      * Sets m_gpuList to a copy of the given gpuInfo.
      *
      */
-    void InitializeForGpuList(const dcgmDiagPluginGpuList_t &gpuInfo);
+    void InitializeForGpuList(std::string const &testName, const dcgmDiagPluginGpuList_t &gpuInfo);
 
     /*************************************************************************/
     /*
@@ -205,7 +224,7 @@ public:
      *
      * Thread-safe.
      */
-    void AddWarning(const std::string &error);
+    void AddWarning(std::string const &testName, const std::string &error);
 
     /*************************************************************************/
     /*
@@ -213,7 +232,16 @@ public:
      *
      * Thread-safe.
      */
-    void AddError(const DcgmError &error);
+    void AddError(std::string const &testName, const DcgmError &error);
+
+    /*************************************************************************/
+    /*
+     * Adds an error that should be stored, but shouldn't be reported if other errors were found.
+     *
+     * These errors tend to be very generic; generally, they are accompanied by a more specific
+     * error and can be ignored. However, if no other error is found they should be reported.
+     */
+    void AddOptionalError(std::string const &testName, const DcgmError &error);
 
     /*************************************************************************/
     /*
@@ -221,7 +249,7 @@ public:
      *
      * Thread-safe.
      */
-    void AddErrorForGpu(unsigned int gpuId, const DcgmError &error);
+    void AddErrorForGpu(std::string const &testName, unsigned int gpuId, const DcgmError &error);
 
     /*************************************************************************/
     /*
@@ -229,7 +257,7 @@ public:
      *
      * Thread-safe.
      */
-    void AddInfo(const std::string &info);
+    void AddInfo(std::string const &testName, const std::string &info);
 
     /*************************************************************************/
     /*
@@ -237,7 +265,7 @@ public:
      *
      * Thread-safe.
      */
-    void AddInfoVerbose(const std::string &info);
+    void AddInfoVerbose(std::string const &testName, const std::string &info);
 
     /*************************************************************************/
     /*
@@ -245,7 +273,7 @@ public:
      *
      * Thread-safe.
      */
-    void AddInfoVerboseForGpu(unsigned int gpuId, const std::string &info);
+    void AddInfoVerboseForGpu(std::string const &testName, unsigned int gpuId, const std::string &info);
 
     /*************************************************************************/
     /*
@@ -253,7 +281,7 @@ public:
      *
      * @param results - the struct in which results are stored
      */
-    virtual dcgmReturn_t GetResults(dcgmDiagResults_t *results);
+    virtual dcgmReturn_t GetResults(std::string const &testName, dcgmDiagResults_t *results);
 
     /*
      * Adds a custom timeseries statistic for GPU gpuId with the specified name and value
@@ -303,24 +331,26 @@ public:
     std::string GetDisplayName();
 
     /***************************PRIVATE**********************************/
+#ifndef DCGM_PLUGIN_TEST
 private:
+#endif
     /* Methods */
+
     /*************************************************************************/
     /*
      * Clears all warnings, info messages, and results.
      *
      */
-    void ResetResultsAndMessages();
+    void ResetResultsAndMessages(std::string const &testName);
 
-    std::vector<nvvsPluginResult_t> m_nonGpuResults; /* Results for non-GPU specific tests */
-    std::vector<DcgmError> m_errors;                 /* List of errors from the plugin */
-    std::vector<std::string> m_warnings;             /* List of general warnings from the plugin */
-    std::vector<std::string> m_verboseInfo;          /* List of general verbose output from the plugin */
+    /*************************************************************************/
+    /*
+     * Records the specified error in the dcgmDiagResults_t struct with the specified gpuId
+     */
+    void AddErrorToResults(dcgmDiagResults_t &results, const DcgmError &error, int gpuId);
 
-    nvvsPluginGpuResults_t m_resultsPerGPU;      /* Per GPU results: Pass | Fail | Skip | Warn */
-    nvvsPluginGpuErrors_t m_errorsPerGPU;        /* Per GPU list of errors from the plugin */
-    nvvsPluginGpuMessages_t m_warningsPerGPU;    /* Per GPU list of warnings from the plugin */
-    nvvsPluginGpuMessages_t m_verboseInfoPerGPU; /* Per GPU list of verbose output from the plugin */
+    // test name to its results
+    std::unordered_map<std::string, PluginResult> m_results;
 
     /* Variables */
     observedMetrics_t m_values; /* Record the values found for pass/fail criteria */

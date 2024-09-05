@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@
 
 /*****************************************************************************/
 void CheckAndSetResult(Plugin *p,
+                       std::string const &testName,
                        const std::vector<unsigned int> &gpuList,
                        size_t i,
                        bool passed,
@@ -31,15 +32,15 @@ void CheckAndSetResult(Plugin *p,
 {
     if (passed)
     {
-        p->SetResultForGpu(gpuList[i], NVVS_RESULT_PASS);
+        p->SetResultForGpu(testName, gpuList[i], NVVS_RESULT_PASS);
     }
     else
     {
         allPassed = false;
-        p->SetResultForGpu(gpuList[i], NVVS_RESULT_FAIL);
+        p->SetResultForGpu(testName, gpuList[i], NVVS_RESULT_FAIL);
         for (size_t j = 0; j < errorList.size(); j++)
         {
-            p->AddErrorForGpu(gpuList[i], errorList[j]);
+            p->AddErrorForGpu(testName, gpuList[i], errorList[j]);
         }
     }
 
@@ -47,7 +48,7 @@ void CheckAndSetResult(Plugin *p,
     {
         for (size_t j = i; j < gpuList.size(); j++)
         {
-            p->SetResultForGpu(gpuList[j], NVVS_RESULT_FAIL);
+            p->SetResultForGpu(testName, gpuList[j], NVVS_RESULT_FAIL);
         }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -139,7 +139,7 @@ static std::unique_ptr<DcgmCacheManager> GetCacheManagerInstance(void)
         return nullptr;
     }
 
-    dcgmReturn_t dcgmReturn = cacheManager->Init(1, 3600.0);
+    dcgmReturn_t dcgmReturn = cacheManager->Init(1, 3600.0, true);
     if (dcgmReturn != DCGM_ST_OK)
     {
         fprintf(stderr, "DcgmCacheManager::Init() failed with %s\n", errorString(dcgmReturn));

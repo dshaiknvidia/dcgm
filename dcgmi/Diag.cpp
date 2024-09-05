@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -105,6 +105,7 @@ const std::string DISPLAY_MEMBW("Memory Bandwidth");
 const std::string DISPLAY_MEMTEST("Memtest");
 const std::string DISPLAY_PULSE_TEST("Pulse Test");
 const std::string DISPLAY_EUD_TEST("EUD Test");
+const std::string DISPLAY_CPU_EUD_TEST("CPU EUD Test");
 
 #define DATA_NAME_TAG "<DATA_NAME"
 #define DATA_INFO_TAG "<DATA_INFO"
@@ -181,18 +182,119 @@ void InstallSigHandlers()
     SET_NEW_HANDLER_AND_SAVE_OLD_HANDLER(SIGTERM, Term, handle_signal_during_diag);
 }
 
+std::optional<std::string> GetEudVersion(unsigned const testIdx, dcgmDiagTestAuxData_v1 const *auxDataPerTest)
+{
+    if (auxDataPerTest[testIdx].version != dcgmDiagTestAuxData_version || auxDataPerTest[testIdx].data[0] == '\0')
+    {
+        return std::nullopt;
+    }
+
+    Json::Value json;
+    Json::Reader reader;
+
+    bool parsingSuccessful = reader.parse(auxDataPerTest[testIdx].data, json);
+    if (!parsingSuccessful)
+    {
+        return std::nullopt;
+    }
+    if (!json.isMember("version") || !json["version"].isString())
+    {
+        return std::nullopt;
+    }
+    return json["version"].asString();
+}
+
+void AddCpuEudResultIfAny(Json::Value &category, int &pluginCount, dcgmDiagTestAuxData_v1 const &auxDataFromCpuEud)
+{
+    if (auxDataFromCpuEud.version != dcgmDiagTestAuxData_version)
+    {
+        log_error("Unexpected aux data version: {}", auxDataFromCpuEud.version);
+        return;
+    }
+    if (auxDataFromCpuEud.data[0] == '\0')
+    {
+        log_debug("Empty aux data field.");
+        return;
+    }
+
+    Json::Value json;
+    Json::Reader reader;
+
+    bool parsingSuccessful = reader.parse(auxDataFromCpuEud.data, json);
+    if (!parsingSuccessful)
+    {
+        log_error("failed to parse aux data: [{}]", auxDataFromCpuEud.data);
+        return;
+    }
+    if (!json.isMember("results") || !json["results"].isObject())
+    {
+        log_error("Unexpected aux data schema: [{}]", json.toStyledString());
+        return;
+    }
+
+    Json::Value results = Json::arrayValue;
+    for (Json::Value::const_iterator itr = json["results"].begin(); itr != json["results"].end(); ++itr)
+    {
+        Json::Value result;
+        if (!itr.key().isString())
+        {
+            log_error("Unexpected aux data schema: [{}]", json.toStyledString());
+            return;
+        }
+        auto cpuId      = itr.key().asString();
+        auto const &val = *itr;
+        if (!val.isMember("status") || !val["status"].isString())
+        {
+            log_error("Unexpected aux data schema: [{}]", json.toStyledString());
+            return;
+        }
+        result["cpu_id"]    = cpuId;
+        result[NVVS_STATUS] = val["status"].asString();
+        if (!val.isMember("errors") || !val["errors"].isArray())
+        {
+            results.append(result);
+            continue;
+        }
+        result[NVVS_WARNINGS] = Json::arrayValue;
+        for (auto const &errObj : val["errors"])
+        {
+            Json::Value errEntry;
+
+            if (!errObj.isMember("error_id") || !errObj.isMember("test_details") || !errObj.isMember("category")
+                || !errObj.isMember("severity"))
+            {
+                log_error("Unexpected error object schema, this error is skipped [{}].", errObj.toStyledString());
+                continue;
+            }
+            errEntry[NVVS_WARNING]        = errObj["test_details"].asString();
+            errEntry[NVVS_ERROR_ID]       = errObj["error_id"].asInt();
+            errEntry[NVVS_ERROR_CATEGORY] = errObj["category"].asInt();
+            errEntry[NVVS_ERROR_SEVERITY] = errObj["severity"].asInt();
+            result[NVVS_WARNINGS].append(errEntry);
+        }
+        results.append(result);
+    }
+
+    Json::Value testEntry;
+    testEntry[NVVS_TEST_NAME] = DISPLAY_CPU_EUD_TEST;
+    testEntry[NVVS_RESULTS]   = results;
+
+    category[NVVS_TESTS][pluginCount] = testEntry;
+    pluginCount += 1;
+}
+
 /*****************************************************************************
  *****************************************************************************
  * RemoteDiagExecutor
  *****************************************************************************
  *****************************************************************************/
-RemoteDiagExecutor::RemoteDiagExecutor(dcgmHandle_t handle, dcgmRunDiag_t &drd)
+RemoteDiagExecutor::RemoteDiagExecutor(dcgmHandle_t handle, dcgmRunDiag_v8 &drd)
     : m_handle(handle)
     , m_result(DCGM_ST_OK)
 {
     memcpy(&m_drd, &drd, sizeof(m_drd));
     memset(&m_diagResult, 0, sizeof(m_diagResult));
-    m_diagResult.version = dcgmDiagResponse_version;
+    m_diagResult.version = dcgmDiagResponse_version10;
 }
 
 void RemoteDiagExecutor::run()
@@ -205,7 +307,7 @@ dcgmReturn_t RemoteDiagExecutor::GetResult() const
     return m_result;
 }
 
-dcgmDiagResponse_t RemoteDiagExecutor::GetResponse() const
+dcgmDiagResponse_v10 RemoteDiagExecutor::GetResponse() const
 {
     return m_diagResult;
 }
@@ -230,7 +332,7 @@ Diag::~Diag()
 {}
 
 /*******************************************************************************/
-void Diag::setDcgmRunDiag(dcgmRunDiag_t *drd)
+void Diag::setDcgmRunDiag(dcgmRunDiag_v8 *drd)
 {
     memcpy(&this->m_drd, drd, sizeof(this->m_drd));
 }
@@ -242,7 +344,7 @@ void Diag::setJsonOutput(bool jsonOutput)
 }
 
 /*******************************************************************************/
-dcgmReturn_t Diag::GetFailureResult(dcgmDiagResponse_t &diagResult)
+dcgmReturn_t Diag::GetFailureResult(dcgmDiagResponse_v10 &diagResult)
 {
     dcgmReturn_t ret = DCGM_ST_OK;
     for (unsigned int i = 0; i < diagResult.levelOneTestCount; i++)
@@ -289,7 +391,7 @@ dcgmReturn_t Diag::GetFailureResult(dcgmDiagResponse_t &diagResult)
     return ret;
 }
 
-void Diag::PopulateGpuList(const dcgmDiagResponse_t &diagResult, std::vector<unsigned int> &gpuVec)
+void Diag::PopulateGpuList(const dcgmDiagResponse_v10 &diagResult, std::vector<unsigned int> &gpuVec)
 {
     // No specified list; find the gpuIds that have been set with tests that have run
     for (unsigned int i = 0; i < DCGM_MAX_NUM_DEVICES && gpuVec.size() < diagResult.gpuCount; i++)
@@ -312,10 +414,10 @@ void Diag::PopulateGpuList(const dcgmDiagResponse_t &diagResult, std::vector<uns
     }
 }
 
-void Diag::InitializeDiagResponse(dcgmDiagResponse_t &diagResult)
+void Diag::InitializeDiagResponse(dcgmDiagResponse_v10 &diagResult)
 {
     memset(&diagResult, 0, sizeof(diagResult));
-    diagResult.version = dcgmDiagResponse_version;
+    diagResult.version = dcgmDiagResponse_version10;
 
     // Initialize the gpu id to one we know won't exist so we can figure out which
     // GPUs ran if there was no specified list
@@ -346,11 +448,113 @@ void Diag::HelperDisplayFailureMessage(const std::string &errMsg, dcgmReturn_t r
     }
 }
 
+std::optional<std::function<void(void)>> Diag::GetDisplayCpuEudHelper(dcgmDiagTestAuxData_v1 const *auxDataPerTest)
+{
+    if (!auxDataPerTest)
+    {
+        return std::nullopt;
+    }
+
+    std::string displayName = HelperGetTestName(DCGM_CPU_EUD_TEST_INDEX);
+    std::string errorMsg;
+    dcgmDiagTestAuxData_v1 const &auxDataFromCpuEud = auxDataPerTest[DCGM_CPU_EUD_TEST_INDEX];
+    if (auxDataFromCpuEud.version != dcgmDiagTestAuxData_version)
+    {
+        log_error("Unexpected aux data version: {}", auxDataFromCpuEud.version);
+        return std::nullopt;
+    }
+    if (auxDataFromCpuEud.data[0] == '\0')
+    {
+        log_debug("Empty aux data field.");
+        return std::nullopt;
+    }
+
+    Json::Value json;
+    Json::Reader reader;
+
+    bool parsingSuccessful = reader.parse(auxDataFromCpuEud.data, json);
+    if (!parsingSuccessful)
+    {
+        log_error("failed to parse aux data: [{}]", auxDataFromCpuEud.data);
+        return std::nullopt;
+    }
+    if (!json.isMember("results") || !json["results"].isObject())
+    {
+        log_error("Unexpected aux data schema: [{}]", json.toStyledString());
+        return std::nullopt;
+    }
+
+    bool skip = false;
+    for (Json::Value::const_iterator itr = json["results"].begin(); itr != json["results"].end(); ++itr)
+    {
+        if (!itr.key().isString())
+        {
+            log_error("Unexpected aux data schema: [{}]", json.toStyledString());
+            return std::nullopt;
+        }
+        auto cpuId      = itr.key().asString();
+        auto const &val = *itr;
+        if (!val.isMember("status") || !val["status"].isString())
+        {
+            log_error("Unexpected aux data schema: [{}]", json.toStyledString());
+            return std::nullopt;
+        }
+        if (val["status"].asString() == "Skip - All")
+        {
+            skip = true;
+            break;
+        }
+        if (!val.isMember("errors") || !val["errors"].isArray())
+        {
+            continue;
+        }
+        for (auto const &errObj : val["errors"])
+        {
+            if (!errObj.isMember("test_details"))
+            {
+                log_error("Unexpected error object schema, this error is skipped: [{}]", errObj.toStyledString());
+                continue;
+            }
+            errorMsg += errObj["test_details"].asString() + ", ";
+        }
+    }
+
+    if (errorMsg.size() >= 2)
+    {
+        // for trailing ", "
+        errorMsg.erase(errorMsg.end() - 2);
+    }
+
+    std::function<void(void)> helper = [this, displayName, errorMsg, skip]() {
+        CommandOutputController cmdView = CommandOutputController();
+        cmdView.setDisplayStencil(DIAG_DATA);
+        if (skip)
+        {
+            cmdView.addDisplayParameter(DATA_NAME_TAG, displayName);
+            cmdView.addDisplayParameter(DATA_INFO_TAG, "Skip - All");
+        }
+        else if (errorMsg.empty())
+        {
+            cmdView.addDisplayParameter(DATA_NAME_TAG, displayName);
+            cmdView.addDisplayParameter(DATA_INFO_TAG, "Pass - All");
+        }
+        else
+        {
+            cmdView.addDisplayParameter(DATA_NAME_TAG, displayName);
+            cmdView.addDisplayParameter(DATA_INFO_TAG, "Fail");
+        }
+        cmdView.display();
+        DisplayVerboseInfo(cmdView, "Warning", Sanitize(errorMsg));
+    };
+    return helper;
+}
+
 /*******************************************************************************/
 dcgmReturn_t Diag::RunDiagOnce(dcgmHandle_t handle)
 {
-    dcgmReturn_t result = DCGM_ST_OK;
-    dcgmDiagResponse_t diagResult;
+    std::unique_ptr<dcgmDiagResponse_v10> diagResultUPtr = std::make_unique<dcgmDiagResponse_v10>();
+    dcgmDiagResponse_v10 &diagResult                     = *(diagResultUPtr);
+    dcgmReturn_t result                                  = DCGM_ST_OK;
     std::vector<unsigned int> gpuVec;
     std::vector<std::string> gpuStrList;
 
@@ -441,10 +645,10 @@ dcgmReturn_t Diag::RunDiagOnce(dcgmHandle_t handle)
 
         if (gpuVec.size() > 0)
         {
-            HelperDisplayIntegration(diagResult.perGpuResponses, gpuVec);
-            HelperDisplayHardware(diagResult.perGpuResponses, gpuVec);
-            HelperDisplayPerformance(diagResult.perGpuResponses, gpuVec);
+            HelperDisplayIntegration(diagResult.perGpuResponses, diagResult.auxDataPerTest, gpuVec);
+            HelperDisplayHardware(diagResult.perGpuResponses, diagResult.auxDataPerTest, gpuVec);
         }
+        HelperDisplayPerformance(diagResult.perGpuResponses, diagResult.auxDataPerTest, gpuVec);
 
         std::cout << DIAG_FOOTER;
     }
@@ -458,14 +662,14 @@ dcgmReturn_t Diag::RunDiagOnce(dcgmHandle_t handle)
 }
 
 /*******************************************************************************/
-dcgmReturn_t Diag::ExecuteDiagOnServer(dcgmHandle_t handle, dcgmDiagResponse_t &diagResult)
+dcgmReturn_t Diag::ExecuteDiagOnServer(dcgmHandle_t handle, dcgmDiagResponse_v10 &diagResult)
 {
-    RemoteDiagExecutor rde(handle, m_drd);
-    dcgmReturn_t result   = DCGM_ST_OK;
-    diag_stopDiagOnSignal = true;
+    std::unique_ptr<RemoteDiagExecutor> rde = std::make_unique<RemoteDiagExecutor>(handle, m_drd);
+    dcgmReturn_t result                     = DCGM_ST_OK;
+    diag_stopDiagOnSignal                   = true;
 
     // Start the diagnostic
-    rde.Start();
+    rde->Start();
 
     while (1)
     {
@@ -473,14 +677,14 @@ dcgmReturn_t Diag::ExecuteDiagOnServer(dcgmHandle_t handle, dcgmDiagResponse_t &
         {
             AbortDiag ad(m_hostname);
             ad.Execute();
-            rde.Stop();
+            rde->Stop();
             result = DCGM_ST_NVVS_KILLED;
             break;
         }
-        else if (rde.HasExited())
+        else if (rde->HasExited())
         {
-            result     = rde.GetResult();
-            diagResult = rde.GetResponse();
+            result     = rde->GetResult();
+            diagResult = rde->GetResponse();
             break;
         }
 
@@ -579,7 +783,7 @@ void Diag::HelperDisplayDeploymentResult(CommandOutputController &cmdView,
     }
 }
 
-void Diag::HelperDisplayVersionAndDevIds(dcgmDiagResponse_t &diagResult)
+void Diag::HelperDisplayVersionAndDevIds(dcgmDiagResponse_v10 &diagResult)
 {
     CommandOutputController cmdView = CommandOutputController();
 
@@ -596,7 +800,7 @@ void Diag::HelperDisplayVersionAndDevIds(dcgmDiagResponse_t &diagResult)
 
     std::stringstream ss;
 
-    for (unsigned int i = 0; i < diagResult.gpuCount; i++)
+    for (unsigned int i = 0; i < DCGM_MAX_NUM_DEVICES && diagResult.devIds[i][0] != '\0'; i++)
     {
         if (i == 0)
         {
@@ -611,9 +815,25 @@ void Diag::HelperDisplayVersionAndDevIds(dcgmDiagResponse_t &diagResult)
     cmdView.addDisplayParameter(DATA_NAME_TAG, "GPU Device IDs Detected");
     cmdView.addDisplayParameter(DATA_INFO_TAG, ss.str());
     cmdView.display();
+
+    auto gpuEudVersionOpt = GetEudVersion(DCGM_EUD_TEST_INDEX, diagResult.auxDataPerTest);
+    if (gpuEudVersionOpt.has_value())
+    {
+        cmdView.addDisplayParameter(DATA_NAME_TAG, "EUD Test Version");
+        cmdView.addDisplayParameter(DATA_INFO_TAG, *gpuEudVersionOpt);
+        cmdView.display();
+    }
+
+    auto cpuEudVersionOpt = GetEudVersion(DCGM_CPU_EUD_TEST_INDEX, diagResult.auxDataPerTest);
+    if (cpuEudVersionOpt.has_value())
+    {
+        cmdView.addDisplayParameter(DATA_NAME_TAG, "CPU EUD Test Version");
+        cmdView.addDisplayParameter(DATA_INFO_TAG, *cpuEudVersionOpt);
+        cmdView.display();
+    }
 }
 
-void Diag::HelperDisplayDeployment(dcgmDiagResponse_t &diagResult)
+void Diag::HelperDisplayDeployment(dcgmDiagResponse_v10 &diagResult)
 {
     CommandOutputController cmdView = CommandOutputController();
 
@@ -627,16 +847,18 @@ void Diag::HelperDisplayDeployment(dcgmDiagResponse_t &diagResult)
     }
 }
 
-void Diag::HelperDisplayHardware(dcgmDiagResponsePerGpu_v5 *diagResults, const std::vector<unsigned int> &gpuIndices)
+void Diag::HelperDisplayHardware(dcgmDiagResponsePerGpu_v5 *diagResults,
+                                 dcgmDiagTestAuxData_v1 *auxDataPerTest,
+                                 const std::vector<unsigned int> &gpuIndices)
 {
     CommandOutputController cmdView = CommandOutputController();
 
     std::cout << DIAG_HARDWARE;
 
     if (!strcasecmp(m_drd.testNames[0], CTXCREATE_PLUGIN_NAME))
-        HelperDisplayGpuResults(DISPLAY_CTXCREATE, DCGM_CONTEXT_CREATE_INDEX, diagResults, gpuIndices);
+        HelperDisplayGpuResults(DISPLAY_CTXCREATE, DCGM_CONTEXT_CREATE_INDEX, diagResults, auxDataPerTest, gpuIndices);
     else
-        HelperDisplayGpuResults(DISPLAY_MEMORY, DCGM_MEMORY_INDEX, diagResults, gpuIndices);
+        HelperDisplayGpuResults(DISPLAY_MEMORY, DCGM_MEMORY_INDEX, diagResults, auxDataPerTest, gpuIndices);
 
     /* Don't show the hardware diagnostic if it skipped */
     bool skipped = true;
@@ -651,34 +873,52 @@ void Diag::HelperDisplayHardware(dcgmDiagResponsePerGpu_v5 *diagResults, const s
     }
 
     if (skipped == false)
-        HelperDisplayGpuResults(DIAGNOSTIC_PLUGIN_NAME, DCGM_DIAGNOSTIC_INDEX, diagResults, gpuIndices);
+        HelperDisplayGpuResults(DIAGNOSTIC_PLUGIN_NAME, DCGM_DIAGNOSTIC_INDEX, diagResults, auxDataPerTest, gpuIndices);
 
-    HelperDisplayGpuResults(PULSE_TEST_PLUGIN_NAME, DCGM_PULSE_TEST_INDEX, diagResults, gpuIndices);
+    HelperDisplayGpuResults(PULSE_TEST_PLUGIN_NAME, DCGM_PULSE_TEST_INDEX, diagResults, auxDataPerTest, gpuIndices);
 }
 
 /*****************************************************************************/
-void Diag::HelperDisplayIntegration(dcgmDiagResponsePerGpu_v5 *diagResults, const std::vector<unsigned int> &gpuIndices)
+void Diag::HelperDisplayIntegration(dcgmDiagResponsePerGpu_v5 *diagResults,
+                                    dcgmDiagTestAuxData_v1 *auxDataPerTest,
+                                    const std::vector<unsigned int> &gpuIndices)
 {
     CommandOutputController cmdView = CommandOutputController();
 
     std::cout << DIAG_INTEGRATION;
 
-    HelperDisplayGpuResults(PCIE_PLUGIN_NAME, DCGM_PCI_INDEX, diagResults, gpuIndices);
+    HelperDisplayGpuResults(PCIE_PLUGIN_NAME, DCGM_PCI_INDEX, diagResults, auxDataPerTest, gpuIndices);
 }
 
 /*****************************************************************************/
-void Diag::HelperDisplayPerformance(dcgmDiagResponsePerGpu_v5 *diagResults, const std::vector<unsigned int> &gpuIndices)
+void Diag::HelperDisplayPerformance(dcgmDiagResponsePerGpu_v5 *diagResults,
+                                    dcgmDiagTestAuxData_v1 *auxDataPerTest,
+                                    const std::vector<unsigned int> &gpuIndices)
 {
     CommandOutputController cmdView = CommandOutputController();
+    auto cpuEudDisplayHelper        = GetDisplayCpuEudHelper(auxDataPerTest);
+
+    if (!cpuEudDisplayHelper.has_value() && gpuIndices.empty())
+    {
+        return;
+    }
 
     std::cout << DIAG_STRESS;
 
-    HelperDisplayGpuResults(SMSTRESS_PLUGIN_NAME, DCGM_SM_STRESS_INDEX, diagResults, gpuIndices);
-    HelperDisplayGpuResults(TS_PLUGIN_NAME, DCGM_TARGETED_STRESS_INDEX, diagResults, gpuIndices);
-    HelperDisplayGpuResults(TP_PLUGIN_NAME, DCGM_TARGETED_POWER_INDEX, diagResults, gpuIndices);
-    HelperDisplayGpuResults(MEMBW_PLUGIN_NAME, DCGM_MEMORY_BANDWIDTH_INDEX, diagResults, gpuIndices);
-    HelperDisplayGpuResults(MEMTEST_PLUGIN_NAME, DCGM_MEMTEST_INDEX, diagResults, gpuIndices);
-    HelperDisplayGpuResults(EUD_PLUGIN_NAME, DCGM_EUD_TEST_INDEX, diagResults, gpuIndices);
+    if (!gpuIndices.empty())
+    {
+        HelperDisplayGpuResults(SMSTRESS_PLUGIN_NAME, DCGM_SM_STRESS_INDEX, diagResults, auxDataPerTest, gpuIndices);
+        HelperDisplayGpuResults(TS_PLUGIN_NAME, DCGM_TARGETED_STRESS_INDEX, diagResults, auxDataPerTest, gpuIndices);
+        HelperDisplayGpuResults(TP_PLUGIN_NAME, DCGM_TARGETED_POWER_INDEX, diagResults, auxDataPerTest, gpuIndices);
+        HelperDisplayGpuResults(
+            MEMBW_PLUGIN_NAME, DCGM_MEMORY_BANDWIDTH_INDEX, diagResults, auxDataPerTest, gpuIndices);
+        HelperDisplayGpuResults(MEMTEST_PLUGIN_NAME, DCGM_MEMTEST_INDEX, diagResults, auxDataPerTest, gpuIndices);
+        HelperDisplayGpuResults(EUD_PLUGIN_NAME, DCGM_EUD_TEST_INDEX, diagResults, auxDataPerTest, gpuIndices);
+    }
+    if (cpuEudDisplayHelper.has_value())
+    {
+        (*cpuEudDisplayHelper)();
+    }
 }
 
 /*****************************************************************************/
@@ -816,6 +1056,7 @@ void Diag::HelperDisplayDetails(bool forceVerbose,
 void Diag::HelperDisplayGpuResults(std::string dataName,
                                    unsigned int testIndex,
                                    dcgmDiagResponsePerGpu_v5 *diagResults,
+                                   dcgmDiagTestAuxData_v1 *auxDataPerTest,
                                    const std::vector<unsigned int> &gpuIndices)
 {
     CommandOutputController cmdView = CommandOutputController();
@@ -828,8 +1069,7 @@ void Diag::HelperDisplayGpuResults(std::string dataName,
     bool isDisplayedFirst   = true;
     bool showWarnings       = false;
     size_t numGpus          = gpuIndices.size();
-    std::string displayName = HelperGetPluginName(testIndex);
-
+    std::string displayName = HelperGetTestName(testIndex);
     cmdView.setDisplayStencil(DIAG_DATA);
 
     if (testIndex == DCGM_CONTEXT_CREATE_INDEX)
@@ -969,8 +1209,24 @@ void Diag::HelperDisplayGpuResults(std::string dataName,
 }
 
 /*****************************************************************************/
-void Diag::HelperJsonAddBasicTests(Json::Value &output, int &categoryIndex, dcgmDiagResponse_t &diagResult)
+void Diag::HelperJsonAddBasicTests(Json::Value &output, int &categoryIndex, dcgmDiagResponse_v10 &diagResult)
 {
+    bool allNotRun = true;
+
+    for (unsigned int testIndex = 0; testIndex < diagResult.levelOneTestCount; testIndex++)
+    {
+        if (diagResult.levelOneResults[testIndex].status != DCGM_DIAG_RESULT_NOT_RUN)
+        {
+            allNotRun = false;
+            break;
+        }
+    }
+
+    if (allNotRun)
+    {
+        return;
+    }
+
     Json::Value category;
     category[NVVS_HEADER] = DISPLAY_DEPLOYMENT;
     // Since the CUDA_RUNTIME_LIBRARY check is no longer valid, we don't want to increment the JSON array
@@ -981,6 +1237,8 @@ void Diag::HelperJsonAddBasicTests(Json::Value &output, int &categoryIndex, dcgm
     // Make the categories array and add each entry
     for (unsigned int testIndex = 0; testIndex < diagResult.levelOneTestCount; testIndex++)
     {
+        Json::Value resultEntry;
+
         // Skip the Cuda Runtime library test when it is not run, which is always for now.
         if (testIndex == DCGM_SWTEST_CUDA_RUNTIME_LIBRARY
             && diagResult.levelOneResults[testIndex].status == DCGM_DIAG_RESULT_NOT_RUN)
@@ -990,23 +1248,25 @@ void Diag::HelperJsonAddBasicTests(Json::Value &output, int &categoryIndex, dcgm
         }
 
         category[NVVS_TESTS][testIndex + adjustment][NVVS_TEST_NAME] = levelOneTests[testIndex];
-        category[NVVS_TESTS][testIndex + adjustment][NVVS_RESULTS][0][NVVS_STATUS]
-            = HelperDisplayDiagResult(diagResult.levelOneResults[testIndex].status);
+        resultEntry[NVVS_STATUS] = HelperDisplayDiagResult(diagResult.levelOneResults[testIndex].status);
 
         for (unsigned int i = 0; i < DCGM_MAX_ERRORS; i++)
         {
+            Json::Value warningEntry;
+
             if (diagResult.levelOneResults[testIndex].error[i].msg[0] != '\0')
             {
-                category[NVVS_TESTS][testIndex + adjustment][NVVS_RESULTS][i][NVVS_WARNINGS]
-                    = diagResult.levelOneResults[testIndex].error[i].msg;
-                category[NVVS_TESTS][testIndex + adjustment][NVVS_RESULTS][i][NVVS_ERROR_ID]
-                    = diagResult.levelOneResults[testIndex].error[i].code;
-                category[NVVS_TESTS][testIndex + adjustment][NVVS_RESULTS][i][NVVS_ERROR_CATEGORY]
-                    = diagResult.levelOneResults[testIndex].error[i].category;
-                category[NVVS_TESTS][testIndex + adjustment][NVVS_RESULTS][i][NVVS_ERROR_SEVERITY]
-                    = diagResult.levelOneResults[testIndex].error[i].severity;
+                resultEntry[NVVS_GPU_ID]          = diagResult.levelOneResults[testIndex].error[i].gpuId;
+                warningEntry[NVVS_WARNINGS]       = diagResult.levelOneResults[testIndex].error[i].msg;
+                warningEntry[NVVS_ERROR_ID]       = diagResult.levelOneResults[testIndex].error[i].code;
+                warningEntry[NVVS_ERROR_CATEGORY] = diagResult.levelOneResults[testIndex].error[i].category;
+                warningEntry[NVVS_ERROR_SEVERITY] = diagResult.levelOneResults[testIndex].error[i].severity;
+
+                resultEntry[NVVS_WARNINGS][i] = warningEntry;
             }
         }
+
+        category[NVVS_TESTS][testIndex + adjustment][NVVS_RESULTS][0] = resultEntry;
     }
 
     // Add the categories array to the root json node
@@ -1018,7 +1278,7 @@ void Diag::HelperJsonAddBasicTests(Json::Value &output, int &categoryIndex, dcgm
 /*
  * Returns the plugin name associated with the given index, or "" if not found
  */
-std::string Diag::HelperGetPluginName(unsigned int index)
+std::string Diag::HelperGetTestName(unsigned int index)
 {
     switch (index)
     {
@@ -1056,6 +1316,9 @@ std::string Diag::HelperGetPluginName(unsigned int index)
 
         case DCGM_EUD_TEST_INDEX:
             return DISPLAY_EUD_TEST;
+
+        case DCGM_CPU_EUD_TEST_INDEX:
+            return DISPLAY_CPU_EUD_TEST;
 
         case DCGM_CONTEXT_CREATE_INDEX:
             return DISPLAY_CTXCREATE;
@@ -1139,7 +1402,7 @@ void Diag::HelperJsonAddCategory(Json::Value &output, int &categoryIndex, Json::
  * Builds the json based on the contents of diagResult
  */
 void Diag::HelperJsonBuildOutput(Json::Value &output,
-                                 dcgmDiagResponse_t &diagResult,
+                                 dcgmDiagResponse_v10 &diagResult,
                                  const std::vector<unsigned int> &gpuIndices)
 {
     int categoryIndex = 0;
@@ -1180,7 +1443,7 @@ void Diag::HelperJsonBuildOutput(Json::Value &output,
         }
     }
 
-    for (unsigned int i = 0; i < diagResult.gpuCount; i++)
+    for (unsigned int i = 0; i < DCGM_MAX_NUM_DEVICES && diagResult.devIds[i][0] != '\0'; i++)
     {
         output[NVVS_GPU_DEV_IDS][i] = diagResult.devIds[i];
     }
@@ -1188,23 +1451,28 @@ void Diag::HelperJsonBuildOutput(Json::Value &output,
     HelperJsonAddBasicTests(output, categoryIndex, diagResult);
 
     // Now get each of the other test's results
-    for (unsigned int pluginIndex = 0; pluginIndex < DCGM_PER_GPU_TEST_COUNT_V8; pluginIndex++)
+    for (unsigned int testIndex = 0; testIndex < DCGM_PER_GPU_TEST_COUNT_V8; testIndex++)
     {
         Json::Value testEntry;
-        std::string testName      = HelperGetPluginName(pluginIndex);
+        std::string testName      = HelperGetTestName(testIndex);
         testEntry[NVVS_TEST_NAME] = testName;
         bool pluginRan            = false;
 
         for (size_t i = 0; i < gpuIndices.size(); i++)
         {
             unsigned int gpuIndex = gpuIndices[i];
-            if (HelperJsonAddResult(diagResult.perGpuResponses[gpuIndex], testEntry, gpuIndex, pluginIndex, i) == true)
+            if (HelperJsonAddResult(diagResult.perGpuResponses[gpuIndex], testEntry, gpuIndex, testIndex, i) == true)
                 pluginRan = true;
+        }
+
+        if (testIndex == DCGM_CPU_EUD_TEST_INDEX)
+        {
+            AddCpuEudResultIfAny(hardware, hardwarePluginCount, diagResult.auxDataPerTest[DCGM_CPU_EUD_TEST_INDEX]);
         }
 
         if (pluginRan)
         {
-            switch (pluginIndex)
+            switch (testIndex)
             {
                 case DCGM_MEMORY_INDEX:
                 case DCGM_DIAGNOSTIC_INDEX:
@@ -1240,7 +1508,7 @@ void Diag::HelperJsonBuildOutput(Json::Value &output,
 /*
  * Displays diagResult as json instead of the normal output
  */
-dcgmReturn_t Diag::HelperDisplayAsJson(dcgmDiagResponse_t &diagResult, const std::vector<unsigned int> &gpuIndices)
+dcgmReturn_t Diag::HelperDisplayAsJson(dcgmDiagResponse_v10 &diagResult, const std::vector<unsigned int> &gpuIndices)
 {
     Json::Value output;
     dcgmReturn_t result = DCGM_ST_OK;
@@ -1271,14 +1539,14 @@ StartDiag::StartDiag(const std::string &hostname,
                      const std::string &parms,
                      const std::string &configPath,
                      bool jsonOutput,
-                     dcgmRunDiag_t &drd,
+                     dcgmRunDiag_v8 &drd,
                      unsigned int iterations,
                      const std::string &pathToDcgmExecutable)
     : m_diagObj(iterations, hostname)
 
 {
     std::string configFileContents;
-    drd.version = dcgmRunDiag_version;
+    drd.version = dcgmRunDiag_version8;
     m_hostName  = hostname;
 
     /* If the host address was overridden, complain if we can't connect.

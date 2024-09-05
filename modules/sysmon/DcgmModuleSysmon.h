@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,8 @@
 
 #include <fstream>
 #include <vector>
+
+#define __DCGM_SYSMON_SKIP_HARDWARE_CHECK__ "DCGM_SKIP_SYSMON_HARDWARE_CHECK"
 
 namespace DcgmNs
 {
@@ -128,7 +130,8 @@ private:
     DcgmWatchTable m_watchTable; /* Table of watchers */
     DcgmSystemMonitor m_sysmon;
     std::string m_coreSpeedBaseDir;
-    bool m_paused;
+    std::atomic_bool m_paused;
+    DcgmNs::Timelib::TimePoint m_maxSampleAge;
 
     bool m_enabledMonitoring[SYSMON_MONITORING_SWITCH_COUNT];
     std::vector<double> m_cpuUtilization;
@@ -172,7 +175,7 @@ private:
     dcgmReturn_t PopulateCpusIfNeeded();
     // Probably going to be replaced by a mechanism that relies on the watch table
     dcgmReturn_t EnableMonitoring(unsigned int monitoringSwitch);
-    void PruneSamples(DcgmNs::Timelib::TimePoint now, std::chrono::milliseconds maxUpdateInterval);
+    void PruneSamples(DcgmNs::Timelib::TimePoint now);
     dcgmReturn_t ParseProcStatCpuLine(const std::string &line, SysmonUtilizationSample &sample);
 
     /*

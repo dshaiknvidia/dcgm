@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 #include <catch2/catch.hpp>
 
 #include <cstring>
+#include <stdlib.h>
 
 #define DCGM_SYSMON_TEST
 #include <DcgmModuleSysmon.h>
@@ -42,7 +43,33 @@ dcgmCoreCallbacks_t g_coreCallbacks(dcgmCoreCallbacks_version, postRequestToCore
 
 TEST_CASE("Sysmon: initialize module")
 {
-    DcgmModuleSysmon sysmon(g_coreCallbacks);
+    // Verify that instructing the constructor to skip the hardware check allows us to initialize correctly.
+    bool differentHardware = false;
+
+    try
+    {
+        DcgmModuleSysmon sysmon(g_coreCallbacks);
+    }
+    catch (std::runtime_error &e)
+    {
+        differentHardware = true;
+    }
+
+    if (differentHardware)
+    {
+        if (!setenv(__DCGM_SYSMON_SKIP_HARDWARE_CHECK__, "value", 0))
+        {
+            try
+            {
+                DcgmModuleSysmon sysmon(g_coreCallbacks);
+            }
+            catch (std::runtime_error &e)
+            {
+                // We should never reach this point
+                CHECK(false);
+            }
+        }
+    }
 }
 
 TEST_CASE("DcgmModuleSysmon::PopulateOwnedCoresBitmaskFromRangeString")
@@ -98,6 +125,12 @@ TEST_CASE("DcgmModuleSysmon::PopulateOwnedCoresBitmaskFromRangeString")
 
 TEST_CASE("DcgmModuleSysmon::ParseProcStatCpuLine")
 {
+    if (setenv(__DCGM_SYSMON_SKIP_HARDWARE_CHECK__, "value", 0))
+    {
+        // We can't reliably run these tests if we can't skip the hardware checks
+        return;
+    }
+
     DcgmModuleSysmon sysmon(g_coreCallbacks);
     sysmon.m_cpus.AddFakeCpu(); // Make sure 0 is a valid CPU
 
@@ -139,6 +172,12 @@ TEST_CASE("DcgmModuleSysmon::ParseProcStatCpuLine")
 
 TEST_CASE("DcgmModuleSysmon::ParseThermalFileContentsAndStore")
 {
+    if (setenv(__DCGM_SYSMON_SKIP_HARDWARE_CHECK__, "value", 0))
+    {
+        // We can't reliably run these tests if we can't skip the hardware checks
+        return;
+    }
+
     DcgmModuleSysmon dms(g_coreCallbacks);
 
     // Format for matches should be 'Thermal Zone Skt# TJMax'
@@ -154,6 +193,12 @@ TEST_CASE("DcgmModuleSysmon::ParseThermalFileContentsAndStore")
 
 TEST_CASE("DcgmModuleSysmon Watches")
 {
+    if (setenv(__DCGM_SYSMON_SKIP_HARDWARE_CHECK__, "value", 0))
+    {
+        // We can't reliably run these tests if we can't skip the hardware checks
+        return;
+    }
+
     DcgmModuleSysmon sysmon(g_coreCallbacks);
     dcgm_sysmon_msg_watch_fields_t watchMsg;
     dcgm_sysmon_msg_unwatch_fields_t unwatchMsg;
@@ -192,8 +237,108 @@ TEST_CASE("DcgmModuleSysmon Watches")
     CHECK(!isSubscribed);
 }
 
+TEST_CASE("DcgmModuleSysmon maxSampleAge")
+{
+    using namespace DcgmNs::Timelib;
+
+    if (setenv(__DCGM_SYSMON_SKIP_HARDWARE_CHECK__, "value", 0))
+    {
+        // We can't reliably run these tests if we can't skip the hardware checks
+        return;
+    }
+
+    DcgmModuleSysmon sysmon(g_coreCallbacks);
+
+    sysmon.m_cpus.AddFakeCpu(); // Make sure 0 is a valid CPU
+    SysmonUtilizationSample sample = {};
+    sample.m_cores.resize(1);
+
+    dcgm_sysmon_msg_watch_fields_t watchMsg;
+    dcgm_sysmon_msg_unwatch_fields_t unwatchMsg;
+    DcgmWatcher watcher(DcgmWatcherTypeClient, 1);
+
+    const dcgm_field_entity_group_t entityGroupId = DCGM_FE_CPU;
+    const unsigned int entityId                   = 0;
+    const unsigned int fieldId                    = DCGM_FI_DEV_CPU_UTIL_USER;
+
+    watchMsg.header.version   = dcgm_sysmon_msg_watch_fields_version;
+    unwatchMsg.header.version = dcgm_sysmon_msg_unwatch_fields_version;
+
+    timelib64_t updateIntervalUsec = 200000;
+    double maxKeepAgeSec           = 30.0; // seconds
+    size_t maxKeepSamples          = 0;    // handled by maxKeepAge
+
+    watchMsg.updateIntervalUsec = updateIntervalUsec;
+    watchMsg.maxKeepAge         = maxKeepAgeSec;
+    watchMsg.maxKeepSamples     = maxKeepSamples;
+    watchMsg.watcher            = watcher;
+
+    watchMsg.numEntities                  = 1;
+    watchMsg.entityPairs[0].entityId      = entityId;
+    watchMsg.entityPairs[0].entityGroupId = entityGroupId;
+
+    watchMsg.numFieldIds = 1;
+    watchMsg.fieldIds[0] = fieldId;
+
+    /* Verify that there is no watch prior to processing
+       the message */
+    CHECK(true != sysmon.m_watchTable.GetIsSubscribed(entityGroupId, entityId, fieldId));
+    dcgmReturn_t ret = sysmon.ProcessWatchFields(&watchMsg);
+    CHECK(ret == DCGM_ST_OK);
+    CHECK(true == sysmon.m_watchTable.GetIsSubscribed(entityGroupId, entityId, fieldId));
+
+    /* Verify a newly added sample isn't prematurely pruned
+       until enough time has passed */
+    TimePoint now = Now();
+
+    sysmon.RunOnce();
+    CHECK(sysmon.m_utilizationSamples.size() == 0);
+
+    sample.m_timestamp       = now;
+    sample.m_cores[0].m_user = 0.125;
+    sysmon.m_utilizationSamples.emplace(sample.m_timestamp, sample);
+
+    sysmon.RunOnce();
+    CHECK(sysmon.m_utilizationSamples.size() == 1);
+
+    // "Advance" the clock and demonstrate that the recorded sample gets pruned
+    sysmon.PruneSamples(TimePoint(now + std::chrono::seconds(30)));
+    CHECK(sysmon.m_utilizationSamples.size() == 0);
+
+    /* Ensure many samples are not pruned until enough
+       time has passed */
+    now = Now();
+
+    // 200_000 us = 200 ms = 0.2s or 5 Hz
+    // For 30s, ~150 samples, not accounting slack
+    CHECK(sysmon.m_utilizationSamples.size() == 0);
+
+    for (size_t i = 0; i < 150; i++)
+    {
+        sample.m_timestamp       = (now - std::chrono::seconds(29)) + (i * std::chrono::milliseconds(200));
+        sample.m_cores[0].m_user = 1.0 / (1 + i);
+        sysmon.m_utilizationSamples.emplace(sample.m_timestamp, sample);
+    }
+
+    CHECK(sysmon.m_utilizationSamples.size() == 150);
+    sysmon.RunOnce();
+    CHECK(sysmon.m_utilizationSamples.size() == 150);
+
+    sysmon.PruneSamples(now + std::chrono::seconds(1));
+    CHECK(sysmon.m_utilizationSamples.size() == 149);
+
+    sysmon.PruneSamples(now + std::chrono::seconds(31));
+    CHECK(sysmon.m_utilizationSamples.size() == 0);
+}
+
 TEST_CASE("DcgmModuleSysmon::CalculateCoreUtilization")
 {
+    if (setenv(__DCGM_SYSMON_SKIP_HARDWARE_CHECK__, "value", 0))
+    {
+        // We can't reliably run these tests if we can't skip the hardware checks
+        return;
+    }
+
     DcgmModuleSysmon sysmon(g_coreCallbacks);
 
     unsigned int numCores = 2;
@@ -314,6 +459,12 @@ int setupTzDirs(const std::string &baseDir)
 
 TEST_CASE("DcgmModuleSysmon::PopulateTemperatureFileMap")
 {
+    if (setenv(__DCGM_SYSMON_SKIP_HARDWARE_CHECK__, "value", 0))
+    {
+        // We can't reliably run these tests if we can't skip the hardware checks
+        return;
+    }
+
     // Setup the directories
     std::string baseDir("tz");
 
@@ -351,6 +502,12 @@ TEST_CASE("DcgmModuleSysmon::PopulateTemperatureFileMap")
 
 TEST_CASE("DcgmModuleSysmon::ReadTemperature")
 {
+    if (setenv(__DCGM_SYSMON_SKIP_HARDWARE_CHECK__, "value", 0))
+    {
+        // We can't reliably run these tests if we can't skip the hardware checks
+        return;
+    }
+
     // Setup the directories
     std::string baseDir("tz");
 
@@ -378,6 +535,12 @@ TEST_CASE("DcgmModuleSysmon::ReadTemperature")
 
 TEST_CASE("DcgmModuleSysmon::ReadCoreSpeed")
 {
+    if (setenv(__DCGM_SYSMON_SKIP_HARDWARE_CHECK__, "value", 0))
+    {
+        // We can't reliably run these tests if we can't skip the hardware checks
+        return;
+    }
+
     // Number of skinnyjoe cores
     const int NUM_FAKE_CPUS = 288;
     DcgmModuleSysmon sysmon(g_coreCallbacks);

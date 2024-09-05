@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -72,6 +72,7 @@ def test_dcgmi_app():
 @test_utils.run_only_on_bare_metal()
 @test_utils.run_only_with_all_supported_gpus()
 @test_utils.skip_denylisted_gpus(["GeForce GT 640"])
+@test_utils.run_only_with_nvml()
 def test_dcgm_unittests_app(*args, **kwargs):
     """
     Runs the testdcgmunittests app and verifies if there are any failing tests

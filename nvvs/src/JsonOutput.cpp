@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -307,6 +307,18 @@ void JsonOutput::Result(nvvsPluginResult_t overallResult,
             }
 
             m_root[NVVS_HEADERS][headerIndex][NVVS_TESTS][m_testIndex][NVVS_RESULTS][m_gpuIndices[i]] = resultField;
+        }
+        if (pluginSpecificData)
+        {
+            try
+            {
+                auto auxData = std::any_cast<Json::Value>(*pluginSpecificData);
+                m_root[NVVS_HEADERS][headerIndex][NVVS_TESTS][m_testIndex][NVVS_AUX_DATA] = auxData;
+            }
+            catch (std::bad_any_cast const &e)
+            {
+                log_debug("Failed to cast plugin specific data to json: {}", e.what());
+            }
         }
         m_testIndex++;
     }

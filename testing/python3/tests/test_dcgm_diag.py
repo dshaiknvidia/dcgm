@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ import utils
 import json
 import tempfile
 import shutil
+import subprocess
 
 from ctypes import *
 from apps.app_runner import AppRunner
@@ -56,25 +57,25 @@ def diag_result_assert_fail(response, gpuIndex, testIndex, msg, errorCode):
     # Instead of checking that it failed, just make sure it didn't pass because we want to ignore skipped
     # tests or tests that did not run.
     assert response.perGpuResponses[gpuIndex].results[testIndex].result != dcgm_structs.DCGM_DIAG_RESULT_PASS, msg
-    if response.version == dcgm_structs.dcgmDiagResponse_version9:
+    if response.version == dcgm_structs.dcgmDiagResponse_version10 or response.version == dcgm_structs.dcgmDiagResponse_version9:
         codeMsg = "Failing test expected error code %d, but found %d" % \
-                    (errorCode, response.perGpuResponses[gpuIndex].results[testIndex].error.code)
-        assert response.perGpuResponses[gpuIndex].results[testIndex].error.code == errorCode, codeMsg
+                    (errorCode, response.perGpuResponses[gpuIndex].results[testIndex].error[0].code)
+        assert response.perGpuResponses[gpuIndex].results[testIndex].error[0].code == errorCode, codeMsg
 
 def diag_result_assert_pass(response, gpuIndex, testIndex, msg):
     # Instead of checking that it passed, just make sure it didn't fail because we want to ignore skipped
     # tests or tests that did not run.
     assert response.perGpuResponses[gpuIndex].results[testIndex].result != dcgm_structs.DCGM_DIAG_RESULT_FAIL, msg
-    if response.version == dcgm_structs.dcgmDiagResponse_version9:
+    if response.version == dcgm_structs.dcgmDiagResponse_version10 or response.version == dcgm_structs.dcgmDiagResponse_version9:
         codeMsg = "Passing test somehow has a non-zero error code!"
-        assert response.perGpuResponses[gpuIndex].results[testIndex].error.code == 0, codeMsg
+        assert response.perGpuResponses[gpuIndex].results[testIndex].error[0].code == 0, codeMsg
 
 def helper_check_diag_empty_group(handle, gpuIds):
     handleObj = pydcgm.DcgmHandle(handle=handle)
     systemObj = handleObj.GetSystem()
     groupObj = systemObj.GetEmptyGroup("test1")
-    runDiagInfo = dcgm_structs.c_dcgmRunDiag_t()
-    runDiagInfo.version = dcgm_structs.dcgmRunDiag_version
+    runDiagInfo = dcgm_structs.c_dcgmRunDiag_v8()
+    runDiagInfo.version = dcgm_structs.dcgmRunDiag_version8
     runDiagInfo.groupId = groupObj.GetId()
     runDiagInfo.validate = 1
 
@@ -168,31 +169,99 @@ def helper_check_dcgm_run_diag_backwards_compatibility(handle, gpuId):
     by using the old structs to run a short validation test.
     """
 
-    def test_dcgm_run_diag(drd, version):
-        drd.validate = 1 # run a short test
-        drd.gpuList = str(gpuId)
-        # This will throw an exception on error
-        response = test_utils.action_validate_wrapper(drd, handle, version)
+    def localDcgmActionValidate_v2(dcgm_handle, runDiagInfo, response):
+        fn = dcgm_structs._dcgmGetFunctionPointer("dcgmActionValidate_v2")
+        ret = fn(dcgm_handle, byref(runDiagInfo), byref(response))
+        return ret
 
-    # Test version 6
+    # Test "latest" (may be redundant with some tests below)
+    drd = dcgm_structs.c_dcgmRunDiag_v8()
+    drd.version = dcgm_structs.dcgmRunDiag_version8
+    drd.gpuList = str(gpuId)
+    drd.validate = 1
+    response = dcgm_structs.c_dcgmDiagResponse_v10()
+    response.version = dcgm_structs.dcgmDiagResponse_version10
+    response.levelOneTestCount = 0
+    ret = localDcgmActionValidate_v2(handle, drd, response)
+    assert ret == dcgm_structs.DCGM_ST_OK, f"ret: [{ret}], system err: [{response.systemError.msg}]"
+    assert response.version == dcgm_structs.dcgmDiagResponse_version10
+    assert response.levelOneTestCount != 0, f"response.levelOneTestCount: [{response.levelOneTestCount}]"
+
+    # Test dcgmRunDiag_v7 with dcgmDiagResponse_v10
     drd = dcgm_structs.c_dcgmRunDiag_v7()
-    test_dcgm_run_diag(drd, dcgm_structs.dcgmRunDiag_version7)
+    drd.version = dcgm_structs.dcgmRunDiag_version7
+    drd.gpuList = str(gpuId)
+    drd.validate = 1
+    response = dcgm_structs.c_dcgmDiagResponse_v10()
+    response.version = dcgm_structs.dcgmDiagResponse_version10
+    response.levelOneTestCount = 0
+    ret = localDcgmActionValidate_v2(handle, drd, response)
+    assert ret == dcgm_structs.DCGM_ST_OK, f"ret: [{ret}], system err: [{response.systemError.msg}]"
+    assert response.version == dcgm_structs.dcgmDiagResponse_version10
+    assert response.levelOneTestCount != 0, f"response.levelOneTestCount: [{response.levelOneTestCount}]"
 
+    # Test dcgmRunDiag_v7 with dcgmDiagResponse_v9
+    drd = dcgm_structs.c_dcgmRunDiag_v7()
+    drd.version = dcgm_structs.dcgmRunDiag_version7
+    drd.gpuList = str(gpuId)
+    drd.validate = 1
+    response = dcgm_structs.c_dcgmDiagResponse_v9()
+    response.version = dcgm_structs.dcgmDiagResponse_version9
+    response.levelOneTestCount = 0
+    ret = localDcgmActionValidate_v2(handle, drd, response)
+    assert ret == dcgm_structs.DCGM_ST_OK, f"ret: [{ret}], system err: [{response.systemError.msg}]"
+    assert response.version == dcgm_structs.dcgmDiagResponse_version9
+    assert response.levelOneTestCount != 0, f"response.levelOneTestCount: [{response.levelOneTestCount}]"
+
+@test_utils.run_with_injection_nvml_using_specific_sku('H200.yaml')
 @test_utils.run_with_embedded_host_engine()
-@test_utils.run_only_with_live_gpus()
-@test_utils.run_only_if_mig_is_disabled()
+@test_utils.run_with_nvml_injected_gpus()
 def test_dcgm_run_diag_backwards_compatibility_embedded(handle, gpuIds):
+    helper_check_dcgm_run_diag_backwards_compatibility(handle, gpuIds[0])
+
+@test_utils.run_with_injection_nvml_using_specific_sku('H200.yaml')
+@test_utils.run_with_standalone_host_engine(120)
+@test_utils.run_with_initialized_client()
+@test_utils.run_with_nvml_injected_gpus()
+def test_dcgm_run_diag_backwards_compatibility_standalone(handle, gpuIds):
     helper_check_dcgm_run_diag_backwards_compatibility(handle, gpuIds[0])
 
 @test_utils.run_with_standalone_host_engine(120)
 @test_utils.run_with_initialized_client()
 @test_utils.run_with_injection_gpus(2)
-def test_dcgm_run_diag_backwards_compatibility_standalone(handle, gpuIds):
-    helper_check_dcgm_run_diag_backwards_compatibility(handle, gpuIds[0])
+@test_utils.run_only_if_mig_is_disabled()
+def test_dcgm_run_diagnostic_backwards_compatibility(handle, gpuIds):
+    def localDcgmRunDiagnostic(dcgm_handle, group_id, response):
+        fn = dcgm_structs._dcgmGetFunctionPointer("dcgmRunDiagnostic")
+        ret = fn(dcgm_handle, group_id, dcgm_structs.DCGM_DIAG_LVL_SHORT, byref(response))
+        return ret
+
+    dcgmHandle = pydcgm.DcgmHandle(handle=handle)
+    dcgmSystem = dcgmHandle.GetSystem()
+    createdGroup = dcgmSystem.GetGroupWithGpuIds("capoo_as_group_name", [gpuIds[0]])
+    createdGroupId = createdGroup.GetId().value
+
+    # Test dcgmDiagResponse_v10
+    response = dcgm_structs.c_dcgmDiagResponse_v10()
+    response.version = dcgm_structs.dcgmDiagResponse_version10
+    response.levelOneTestCount = 0
+    ret = localDcgmRunDiagnostic(handle, createdGroupId, response)
+    assert ret == dcgm_structs.DCGM_ST_OK, f"ret: [{ret}]"
+    assert response.version == dcgm_structs.dcgmDiagResponse_version10
+    assert response.levelOneTestCount != 0, f"response.levelOneTestCount: [{response.levelOneTestCount}]"
+
+    # Test dcgmDiagResponse_v9
+    response = dcgm_structs.c_dcgmDiagResponse_v9()
+    response.version = dcgm_structs.dcgmDiagResponse_version9
+    response.levelOneTestCount = 0
+    ret = localDcgmRunDiagnostic(handle, createdGroupId, response)
+    assert ret == dcgm_structs.DCGM_ST_OK, f"ret: [{ret}]"
+    assert response.version == dcgm_structs.dcgmDiagResponse_version9
+    assert response.levelOneTestCount != 0, f"response.levelOneTestCount: [{response.levelOneTestCount}]"
 
 checked_gpus = {} # Used to track that a GPU has been verified as passing
 # Makes sure a very basic diagnostic passes and returns a DcgmDiag object
-def helper_verify_diag_passing(handle, gpuIds, testNames="memtest", testIndex=dcgm_structs.DCGM_MEMTEST_INDEX, params="memtest.test_duration=15", version=dcgm_structs.dcgmRunDiag_version, useFakeGpus=False):
+def helper_verify_diag_passing(handle, gpuIds, testNames="memtest", testIndex=dcgm_structs.DCGM_MEMTEST_INDEX, params="memtest.test_duration=15", version=dcgm_structs.dcgmRunDiag_version8, useFakeGpus=False):
     dd = DcgmDiag.DcgmDiag(gpuIds=gpuIds, testNamesStr=testNames, paramsStr=params, version=version)
     dd.SetThrottleMask(0) # We explicitly want to fail for throttle reasons since this test inserts throttling errors 
                           # for verification
@@ -390,7 +459,7 @@ def test_dcgm_diag_pcie_failure(handle, gpuIds):
         test_utils.skip_test("Debug test only")
 
     dd = DcgmDiag.DcgmDiag(gpuIds=[gpuIds[0]], testNamesStr="pcie", paramsStr="pcie.test_duration=60;pcie.test_with_gemm=true",
-                           version=dcgm_structs.dcgmRunDiag_version7)
+                           version=dcgm_structs.dcgmRunDiag_version8)
     response = test_utils.diag_execute_wrapper(dd, handle)
     assert check_diag_result_fail(response, gpuIds[0], dcgm_structs.DCGM_PCI_INDEX), "No failure detected in diagnostic"
 
@@ -455,7 +524,7 @@ def helper_check_diag_stop_on_interrupt_signals(handle, gpuId):
     """
     # First check whether the GPU is healthy/supported
     dd = DcgmDiag.DcgmDiag(gpuIds=[gpuId], testNamesStr="memtest", paramsStr="memtest.test_duration=2",
-                           version=dcgm_structs.dcgmRunDiag_version7)
+                           version=dcgm_structs.dcgmRunDiag_version8)
     response = test_utils.diag_execute_wrapper(dd, handle)
     if not check_diag_result_pass(response, gpuId, dcgm_structs.DCGM_MEMTEST_INDEX):
         test_utils.skip_test("Skipping because GPU %s does not pass memtest. "
@@ -601,7 +670,7 @@ def helper_throttling_masking_failures(handle, gpuId):
     #####
     # First check whether the GPU is healthy
     dd = DcgmDiag.DcgmDiag(gpuIds=[gpuId], testNamesStr="memtest", paramsStr="memtest.test_duration=2",
-                           version=dcgm_structs.dcgmRunDiag_version)
+                           version=dcgm_structs.dcgmRunDiag_version8)
     dd.SetThrottleMask(0) # We explicitly want to fail for throttle reasons since this test inserts throttling errors 
                           # for verification
     dd.UseFakeGpus()
@@ -612,7 +681,7 @@ def helper_throttling_masking_failures(handle, gpuId):
     
     #####
     dd = DcgmDiag.DcgmDiag(gpuIds=[gpuId], testNamesStr="memtest", paramsStr="memtest.test_duration=15",
-                           version=dcgm_structs.dcgmRunDiag_version)
+                           version=dcgm_structs.dcgmRunDiag_version8)
     dd.SetThrottleMask(0)
     dd.UseFakeGpus()
 
@@ -650,6 +719,7 @@ def test_dcgm_diag_throttling_masking_failures_standalone(handle, gpuIds):
 @test_utils.run_with_standalone_host_engine(120, heEnv=test_utils.smallFbModeEnv)
 @test_utils.run_with_initialized_client()
 @test_utils.run_with_injection_gpus(2)
+@test_utils.run_only_with_nvml()
 def test_dcgm_diag_handle_concurrency_standalone(handle, gpuIds):
     '''
     Test that we can use a DCGM handle concurrently with a diagnostic running
@@ -659,7 +729,7 @@ def test_dcgm_diag_handle_concurrency_standalone(handle, gpuIds):
     gpuId = gpuIds[0]
 
     dd = DcgmDiag.DcgmDiag(gpuIds=[gpuId], testNamesStr="memtest", paramsStr="memtest.test_duration=%d" % diagDuration,
-                           version=dcgm_structs.dcgmRunDiag_version)
+                           version=dcgm_structs.dcgmRunDiag_version8)
 
     dd.UseFakeGpus()
     
@@ -708,7 +778,7 @@ def helper_per_gpu_responses_api(handle, gpuIds, testDir):
     failGpuId = gpuIds[0]
     dd = helper_verify_diag_passing(handle, gpuIds, useFakeGpus=True)
 
-    dd = DcgmDiag.DcgmDiag(gpuIds=[failGpuId], testNamesStr="memtest", paramsStr="memtest.test_duration=15", version=dcgm_structs.dcgmRunDiag_version)
+    dd = DcgmDiag.DcgmDiag(gpuIds=[failGpuId], testNamesStr="memtest", paramsStr="memtest.test_duration=15", version=dcgm_structs.dcgmRunDiag_version8)
     dd.SetThrottleMask(0) # We explicitly want to fail for throttle reasons since this test inserts throttling errors 
                           # for verification
     dd.UseFakeGpus()
@@ -866,6 +936,7 @@ def helper_per_gpu_responses_dcgmi(handle, gpuIds, testName, testParams):
 @test_utils.run_with_standalone_host_engine(120, heEnv=test_utils.smallFbModeEnv)
 @test_utils.run_with_initialized_client()
 @test_utils.run_with_injection_gpus(2)
+@test_utils.run_only_with_nvml()
 def test_dcgm_diag_per_gpu_responses_standalone_api(handle, gpuIds):
     if len(gpuIds) < 2:
         test_utils.skip_test("Skipping because this test requires 2 or more GPUs with same SKU")
@@ -890,6 +961,7 @@ def test_dcgm_diag_per_gpu_responses_standalone_api(handle, gpuIds):
 @test_utils.run_with_standalone_host_engine(120, heEnv=test_utils.smallFbModeEnv)
 @test_utils.run_with_initialized_client()
 @test_utils.run_with_injection_gpus(2)
+@test_utils.run_only_with_nvml()
 def test_dcgm_diag_per_gpu_responses_standalone_dcgmi(handle, gpuIds):
     if len(gpuIds) < 2:
         test_utils.skip_test("Skipping because this test requires 2 or more GPUs with same SKU")
@@ -903,6 +975,7 @@ def test_dcgm_diag_per_gpu_responses_standalone_dcgmi(handle, gpuIds):
 @test_utils.run_with_standalone_host_engine(120, heEnv=test_utils.smallFbModeEnv)
 @test_utils.run_with_initialized_client()
 @test_utils.run_with_injection_gpus(2)
+@test_utils.run_only_with_nvml()
 def test_dcgm_diag_memtest_fails_standalone_dcgmi(handle, gpuIds):
     if len(gpuIds) < 2:
         test_utils.skip_test("Skipping because this test requires 2 or more GPUs with same SKU")
@@ -1023,6 +1096,7 @@ def helper_test_dcgm_diag_paused(handle, gpuIds):
 
 @test_utils.run_with_embedded_host_engine()
 @test_utils.run_with_injection_gpus(1)
+@test_utils.run_only_with_nvml()
 def test_dcgm_diag_paused_embedded(handle, gpuIds):
     helper_test_dcgm_diag_paused(handle, gpuIds)
 
@@ -1030,5 +1104,105 @@ def test_dcgm_diag_paused_embedded(handle, gpuIds):
 @test_utils.run_with_standalone_host_engine(120)
 @test_utils.run_with_initialized_client()
 @test_utils.run_with_injection_gpus(1)
+@test_utils.run_only_with_nvml()
 def test_dcgm_diag_paused_standalone(handle, gpuIds):
     helper_test_dcgm_diag_paused(handle, gpuIds)
+
+def helper_hbm_temeprature_check(handle, gpuIds, flag):
+    # ------------------------
+    indices_to_check = {
+                    "Memory": dcgm_structs.DCGM_MEMORY_INDEX,
+                    "Diagnostic": dcgm_structs.DCGM_DIAGNOSTIC_INDEX
+                    }
+
+    # create new diag object
+    dd = DcgmDiag.DcgmDiag(gpuIds=[gpuIds[0]], testNamesStr="4")
+    dd.UseFakeGpus()
+    
+    # ------------------------
+    # set the temperature
+    if flag == "fail":
+        # set fake hbm temperature greater than max
+        fake_curr_temperature = 1000
+    
+    else: 
+        # set fake hbm temperature less than max
+        fake_curr_temperature = 10
+
+    # ------------------------
+    # inject the temperature
+    inject_value(handle, gpuIds[0], dcgm_fields.DCGM_FI_DEV_MEMORY_TEMP, fake_curr_temperature, injection_offset, repeatCount=3, repeatOffset=5)
+
+    # ------------------------
+    # Verify that the inserted values are visible in DCGM before starting the diag        
+    assert dcgm_internal_helpers.verify_field_value(gpuIds[0], dcgm_fields.DCGM_FI_DEV_MEMORY_TEMP, fake_curr_temperature, numMatches=1), \
+        "Expected inserted values to be visible in DCGM"
+
+    # ------------------------
+    # run the diag
+    response = test_utils.diag_execute_wrapper(dd, handle)
+    logger.info("Started diag")
+
+    # ------------------------
+    # Verify that the inserted values are visible in DCGM after running the diag
+    assert dcgm_internal_helpers.verify_field_value(gpuIds[0], dcgm_fields.DCGM_FI_DEV_MEMORY_TEMP, fake_curr_temperature, numMatches=1), \
+        "Expected inserted values to be visible in DCGM"
+
+    # ------------------------
+    # check if the memory diagnostic fails/passes
+    assert response.gpuCount == len(gpuIds), "Expected %d gpus, but found %d reported" % (len(gpuIds), response.gpuCount)
+    
+    # ------------------------
+    logger.info("Checking HBM Temperature")
+    for key in indices_to_check:
+        if response.perGpuResponses[gpuIds[0]].results[indices_to_check[key]].result == dcgm_structs.DCGM_DIAG_RESULT_NOT_RUN:
+            logger.info("Diag test: {} did not run".format(key))
+        elif response.perGpuResponses[gpuIds[0]].results[indices_to_check[key]].result == dcgm_structs.DCGM_DIAG_RESULT_SKIP:
+            logger.info("Diag test: {} did not run and was skipped".format(key))
+        else:
+            if flag=="fail": 
+                diag_result_assert_fail(response, gpuIds[0], indices_to_check[key], "Expected a failure in test: {} due to 1000 degree inserted temp.".format(key), dcgm_errors.DCGM_FR_TEMP_VIOLATION)
+            else:
+                diag_result_assert_pass(response, gpuIds[0], indices_to_check[key], "Expected a pass in test {}".format(key))
+
+
+@test_utils.run_with_standalone_host_engine(120, heEnv=test_utils.smallFbModeEnv)
+@test_utils.run_with_initialized_client()
+@test_utils.run_with_injection_gpus(1)
+def test_dcgm_diag_hbm_temperature_fail(handle, gpuIds):
+    logger.info("Starting test")
+    helper_hbm_temeprature_check(handle, gpuIds, "fail")
+
+
+@test_utils.run_with_standalone_host_engine(120, heEnv=test_utils.smallFbModeEnv)
+@test_utils.run_with_initialized_client()
+@test_utils.run_with_injection_gpus(1)
+def test_dcgm_diag_hbm_temperature_pass(handle, gpuIds):
+    logger.info("Starting test")
+    helper_hbm_temeprature_check(handle, gpuIds, "pass")
+
+@test_utils.run_with_standalone_host_engine(120)
+@test_utils.run_with_initialized_client()
+@test_utils.run_only_with_live_gpus()
+@test_utils.for_all_same_sku_gpus()
+@test_utils.run_only_if_mig_is_disabled()
+def test_dcgm_diag_timing_out(handle, gpuIds):
+    dd = DcgmDiag.DcgmDiag(gpuIds=gpuIds, testNamesStr="pcie", timeout=1)
+    try:
+        test_utils.diag_execute_wrapper(dd, handle)
+    except Exception as e:
+        assert isinstance(e, dcgm_structs.dcgmExceptionClass(dcgm_structs.DCGM_ST_TIMEOUT))
+    else:
+        test_utils.skip_test('Skip due to rapid pace of code execution.')
+
+    for i in range(0,3):
+        try:
+            dcgm_agent_internal.dcgmStopDiagnostic(handle)
+        except dcgm_structs.dcgmExceptionClass(dcgm_structs.DCGM_ST_CHILD_NOT_KILLED) as e:
+            if i == 2:
+                nvvsPids = map(int, subprocess.check_output(["pidof", "nvvs"]).split())
+                for childPid in nvvsPids:
+                    logger.info("Force killing the NVVS process %d", childPid)
+                    os.kill(childPid, 9)
+            else:
+                pass

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,6 +45,8 @@ public:
     nvmlReturn_t SetString(InjectionArgument &charPtrArg, InjectionArgument &lenArg) const;
 
     void Clear();
+
+    const std::vector<InjectionArgument> &RawValues();
 
 private:
     unsigned int m_valueCount;               //!< The number of acceptable values (checked before assigning)

@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,6 +28,8 @@ if (BUILD_TESTING)
             dcgmi_objects
             dcgm
             dcgm_common
+            dcgm_logging
+            dcgmmodulediag_common
             Catch2::Catch2
             ${JSONCPP_STATIC_LIBS}
             fmt::fmt
@@ -38,6 +40,7 @@ if (BUILD_TESTING)
         PRIVATE
             DcgmiUnitTestsMain.cpp
             TopoTests.cpp
+            CommandLineParserTests.cpp
     )
 
     if (${CMAKE_SYSTEM_PROCESSOR} STREQUAL "x86_64")

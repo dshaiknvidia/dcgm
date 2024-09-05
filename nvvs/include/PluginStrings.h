@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -299,6 +299,8 @@
 #define DIAGNOSTIC_STR_IS_ALLOWED          "is_allowed"      /* Is this plugin allowed to run? */
 #define DIAGNOSTIC_STR_MATRIX_DIM          "matrix_dim"      /* The starting dimension of the matrix used for S/Dgemm */
 #define DIAGNOSTIC_STR_PRECISION           "precision"       /* The precision to use: half, single, or double */
+#define DIAGNOSTIC_STR_GFLOPS_TOLERANCE_PCNT \
+    "gflops_tolerance_pcnt" /* % of mean below which gflops are treated as errors */
 
 /****************************************************************************
  * CONTEXT CREATE PLUGIN
@@ -339,6 +341,7 @@
 #define EUD_PASSTHROUGH_ARGS "passthrough_args" /*!< Arguments to pass to the EUD binary */
 #define EUD_TMP_DIR          "tmp_dir"          /*!< Temporary directory to use for EUD */
 #define EUD_MLE_PARSE        "parse_mle"        /*!< Parse the MLE or not */
+#define EUD_CPU_EUD_TEST_NAME "cpu_eud"
 
 /*****************************************************************************
  * PER PLUGIN ERROR DEFINITIONS AND THEIR BITMASKS
